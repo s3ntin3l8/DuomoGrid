@@ -44,6 +44,6 @@ jobs:
       id-token: write
     uses: s3ntin3l8/.github/.github/workflows/docker-publish.yml@main
     with:
-      image-name: "s3ntin3l8/${{ github.event.repository.name }}"
+      image-name: s3ntin3l8/duomogrid
       push-edge: ${{ github.event_name == 'push' }}
     secrets: inherit # pragma: allowlist secret

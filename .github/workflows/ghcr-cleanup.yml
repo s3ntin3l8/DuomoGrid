@@ -11,4 +11,4 @@ jobs:
       packages: write
     uses: s3ntin3l8/.github/.github/workflows/ghcr-cleanup.yml@main
     with:
-      package-name: "${{ github.event.repository.name }}"
+      package-name: duomogrid
