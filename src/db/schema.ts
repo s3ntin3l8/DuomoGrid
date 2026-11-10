@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -9,4 +9,59 @@ export const users = sqliteTable("users", {
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
+});
+
+export const listings = sqliteTable("listings", {
+  id: text("id").primaryKey(),
+  source: text("source").notNull(),
+  externalId: text("external_id"),
+  sourceUrl: text("source_url").notNull(),
+  offer: text("offer").notNull(),
+  title: text("title").notNull(),
+  city: text("city").notNull().default(""),
+  district: text("district"),
+  postalCode: text("postal_code"),
+  state: text("state"),
+  propertyType: text("property_type").notNull(),
+  livingAreaM2: real("living_area_m2"),
+  plotAreaM2: real("plot_area_m2"),
+  rooms: real("rooms"),
+  yearBuilt: integer("year_built"),
+  yearRefurbished: integer("year_refurbished"),
+  energyClass: text("energy_class"),
+  energyKwh: real("energy_kwh"),
+  energyCert: text("energy_cert"),
+  heating: text("heating"),
+  condoFeeEur: real("condo_fee_eur"),
+  coldRentEur: real("cold_rent_eur"),
+  warmRentEur: real("warm_rent_eur"),
+  depositEur: real("deposit_eur"),
+  rentContract: text("rent_contract"),
+  commissionPercent: real("commission_percent"),
+  commissionText: text("commission_text"),
+  condition: text("condition"),
+  floor: text("floor"),
+  featuresJson: text("features_json").notNull().default("[]"),
+  snippet: text("snippet").notNull().default(""),
+  leasehold: integer("leasehold", { mode: "boolean" }).notNull().default(false),
+  groundRentEur: real("ground_rent_eur"),
+  monument: integer("monument", { mode: "boolean" }).notNull().default(false),
+  tenantOccupied: integer("tenant_occupied", { mode: "boolean" }).notNull().default(false),
+  notes: text("notes").notNull().default(""),
+  status: text("status").notNull().default("open"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const observations = sqliteTable("observations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  listingId: text("listing_id")
+    .notNull()
+    .references(() => listings.id),
+  seenAt: text("seen_at").notNull(),
+  priceEur: real("price_eur"),
+  coldRentEur: real("cold_rent_eur"),
+  warmRentEur: real("warm_rent_eur"),
+  condoFeeEur: real("condo_fee_eur"),
+  rawJson: text("raw_json").notNull(),
 });

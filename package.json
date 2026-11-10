@@ -1,8 +1,8 @@
 {
-  "name": "node-backend-template",
+  "name": "duomo-grid",
   "version": "0.1.4",
   "type": "module",
-  "description": "Standard Fastify backend template with full CI/CD and security",
+  "description": "Self-hosted desk for buy and rent listings you choose to save.",
   "main": "dist/server.js",
   "engines": {
     "node": ">=26"

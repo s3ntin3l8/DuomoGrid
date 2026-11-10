@@ -15,6 +15,13 @@
       "when": 1781084341962,
       "tag": "0001_wandering_la_nuit",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794346686755,
+      "tag": "0003_smiling_exodus",
+      "breakpoints": true
     }
   ]
 }

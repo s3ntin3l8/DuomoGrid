@@ -39,6 +39,10 @@ const schema = {
       type: "string",
       default: "1 minute",
     },
+    INGEST_TOKEN: {
+      type: "string",
+      default: "",
+    },
   },
 };
 
@@ -60,6 +64,7 @@ declare module "fastify" {
       CORS_ORIGIN: string;
       RATE_LIMIT_MAX: number;
       RATE_LIMIT_WINDOW: string;
+      INGEST_TOKEN: string;
     };
   }
 }

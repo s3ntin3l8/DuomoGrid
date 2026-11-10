@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "DuomoGrid",
+  "version": "0.1.0",
+  "description": "Reads the open ImmoScout24 or Immowelt listing and sends it to your DuomoGrid server.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.immobilienscout24.de/*",
+    "https://immobilienscout24.de/*",
+    "https://www.immowelt.de/*",
+    "https://immowelt.de/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_title": "DuomoGrid",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.immobilienscout24.de/expose/*",
+        "https://immobilienscout24.de/expose/*",
+        "https://www.immowelt.de/expose/*",
+        "https://immowelt.de/expose/*"
+      ],
+      "js": ["extract.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

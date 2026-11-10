@@ -1,0 +1,130 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: #1c1915;
+  background: #f3efe6;
+}
+
+body {
+  width: 320px;
+  margin: 0;
+  padding: 14px 14px 16px;
+}
+
+header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.mark {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 8px;
+  background: #1c1915;
+  color: #f3efe6;
+  font-family: Georgia, "Iowan Old Style", serif;
+}
+
+header strong {
+  display: block;
+  font-family: Georgia, "Iowan Old Style", serif;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+header p,
+.status {
+  margin: 4px 0 0;
+  color: #5c564e;
+  font-size: 13px;
+}
+
+label {
+  display: block;
+  margin-bottom: 12px;
+  color: #5c564e;
+  font-size: 13px;
+}
+
+input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 40px;
+  margin-top: 4px;
+  padding: 0 10px;
+  border: 1px solid #e3d9cb;
+  border-radius: 8px;
+  background: #faf7f1;
+  color: #1c1915;
+  font: inherit;
+}
+
+#card {
+  margin-bottom: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e3d9cb;
+}
+
+h1 {
+  margin: 0;
+  font-family: Georgia, "Iowan Old Style", serif;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+#meta {
+  margin: 4px 0 8px;
+  color: #5c564e;
+  font-size: 13px;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+}
+
+dt {
+  color: #5c564e;
+  font-size: 12px;
+}
+
+dd {
+  margin: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+button {
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: #8f3d24;
+  color: #faf7f1;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.quiet {
+  background: transparent;
+  color: #1c1915;
+  border: 1px solid #e3d9cb;
+}

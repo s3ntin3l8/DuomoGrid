@@ -1,0 +1,16 @@
+services:
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: file:/app/data/app.db
+      INGEST_TOKEN: ${INGEST_TOKEN:?set INGEST_TOKEN}
+      PORT: 3000
+    volumes:
+      - duomo-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  duomo-data:

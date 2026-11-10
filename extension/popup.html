@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DuomoGrid</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <span class="mark">m2</span>
+      <div>
+        <strong>DuomoGrid</strong>
+        <p>This listing only. Nothing else is read.</p>
+      </div>
+    </header>
+    <label>
+      Server URL
+      <input id="url" type="url" placeholder="http://127.0.0.1:3000" autocomplete="off" />
+    </label>
+    <label>
+      Ingest token
+      <input id="token" type="password" autocomplete="off" />
+    </label>
+    <section id="card" hidden>
+      <h1 id="title"></h1>
+      <p id="meta"></p>
+      <dl>
+        <div><dt>Price</dt><dd id="price"></dd></div>
+        <div><dt>Area</dt><dd id="area"></dd></div>
+        <div><dt>Energy</dt><dd id="energy"></dd></div>
+      </dl>
+    </section>
+    <p id="status" class="status">Reading this page…</p>
+    <div class="actions">
+      <button id="send" type="button" disabled>Save to DuomoGrid</button>
+      <button id="copy" type="button" class="quiet" disabled>Copy JSON</button>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,4 +1,15 @@
-# CLAUDE.md — Fastify Backend Template
+# CLAUDE.md — DuomoGrid
+
+Self-hosted Fastify service for buy and rent listings the user chooses to save.
+The browser extension reads only the exposé already open on ImmoScout24 or Immowelt
+and POSTs it to `/listings`. Analysis (purchase costs, financing, energy, rent-versus-buy)
+runs on the server. SQLite lives in a Docker volume. UI, code, and docs are English.
+City names and listing text stay as published.
+
+The repo was created from `node-backend-template`. The sections below are still the
+operational contract (layout, CI, commands). The example `/users` route is unused
+by the product and can be removed once nothing in CI depends on it.
+
 
 A Fastify + TypeScript backend starter (SQLite via Drizzle, encryption-at-rest,
 security middleware) wired to the centralized CI/CD in
