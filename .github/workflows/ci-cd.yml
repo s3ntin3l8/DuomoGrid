@@ -1,0 +1,49 @@
+name: CI/CD
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  test-node:
+    permissions:
+      contents: read
+    uses: s3ntin3l8/.github/.github/workflows/ci-node.yml@main
+    with:
+      node-version: "26"
+      test-script: "test:coverage"
+      strict-checks: true
+      # Only the files this push touched can have introduced a secret.
+      # detect-secrets matches a known secret by filename, hash and type -- not
+      # by line number -- so a secret that shifts lines is still recognised,
+      # and the hook rewrites the baseline's line number and fails the build
+      # until the baseline is refreshed. That is why a change to a baselined
+      # file needs the baseline refreshed in the same change.
+      detect-secrets-scope: "changed"
+      # Test sharding is off (the suite is tiny; shards would only add runner
+      # jobs). Turn it on once tests get slow: uncomment the two lines below.
+      # `test:coverage` works as-is because vitest.config.ts sets no
+      # `coverage.thresholds`. If you add thresholds, point `test-script` at a
+      # separate `test:coverage:sharded` script and gate on `coverage-fail-under`
+      # instead -- a threshold fires per shard, and one shard's partial coverage
+      # would fail it. Tests import `src/` directly, so shards skip the build.
+      # test-shards: "4"
+      # shard-build-script: "none"
+    secrets: inherit # pragma: allowlist secret
+
+  build-docker:
+    needs: [test-node]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: s3ntin3l8/.github/.github/workflows/docker-publish.yml@main
+    with:
+      image-name: "s3ntin3l8/${{ github.event.repository.name }}"
+      push-edge: ${{ github.event_name == 'push' }}
+    secrets: inherit # pragma: allowlist secret

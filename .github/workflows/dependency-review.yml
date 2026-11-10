@@ -1,0 +1,20 @@
+name: "Dependency Review"
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    # The dependency-review API is free on public repos but requires GitHub
+    # Advanced Security on private ones. Skip while private; auto-runs once
+    # the repo is public. The reusable workflow also bakes this guard in
+    # (s3ntin3l8/.github#60), so this layer is defense-in-depth rather than
+    # load-bearing.
+    if: ${{ github.event.repository.private == false }}
+    permissions:
+      contents: read
+    uses: s3ntin3l8/.github/.github/workflows/dependency-review.yml@main

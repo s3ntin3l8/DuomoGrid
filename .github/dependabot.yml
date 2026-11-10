@@ -1,0 +1,37 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-deps:
+        patterns:
+          - "*"
+        # Major bumps get their own individual PR instead of riding along in the
+        # weekly group -- a major (e.g. typescript 6->7) can break peer-dependency
+        # resolution for the whole group (npm install fails outright), taking every
+        # harmless minor/patch bump down with it.
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # typescript-eslint@8 peers `typescript >=4.8.4 <6.1.0`; TS 7 (and 6.1+)
+      # break `npm ci` at resolution -- this is what broke main's CI/CD after
+      # PR #17. Lift when typescript-eslint ships TS 7 support.
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"

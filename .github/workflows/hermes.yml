@@ -1,0 +1,119 @@
+name: Hermes (review)
+
+# Two ways to get a review from the s3ntin3l8-hermes bot:
+#   1. auto-review    -> once per PR unless the prior review was dismissed:
+#      on `opened` if it starts non-draft, or on `ready_for_review` if it
+#      starts as a draft (the guard counts only non-dismissed reviews, so
+#      dismissing re-arms the next draft<->ready flip).
+#   2. on-demand-review -> comment "@s3ntin3l8-hermes Review" (or "Triage" on
+#      an issue) any time you want another look -- including every follow-up
+#      after the initial auto-review.
+# Both call the same reusable workflow (s3ntin3l8/.github/.github/workflows/
+# hermes-review.yml@main), so each job only runs for its own trigger.
+#
+# IMPORTANT: do NOT add `synchronize` back. It re-triggers a fresh review on
+# EVERY subsequent push, which on a PR under active iteration is an unbounded
+# review loop (each review's comments prompt more commits, each commit fires
+# another review...). `ready_for_review` is safe to keep alongside `opened`:
+# a draft can flip to ready and back to draft and ready again, firing this
+# event more than once, but repeat `ready_for_review` events are bounded by
+# the reusable workflow's own "Guard against re-trigger (auto mode only)"
+# step, which skips the run once this bot already has a non-dismissed
+# review on the PR -- that guard was actually broken until
+# s3ntin3l8/.github#54 (a `gh api --jq --arg` invocation that silently
+# failed and always reported "no prior review found"), fixed there.
+#
+# `auto-review` reviews dependabot PRs too: a dependency bump can change a
+# runtime tool version without saying so (runway-ai-usage-tracker#627: a
+# cosign-installer bump silently changed the default cosign from v2 to v3),
+# which is exactly what a reviewer catches. A dependabot-authored run only
+# sees DEPENDABOT secrets, so HERMES_APP_ID / HERMES_APP_PRIVATE_KEY /
+# HERMES_API_KEY must also be set under Settings -> Secrets and variables ->
+# Dependabot; without them the reusable workflow skips green with a notice
+# (s3ntin3l8/.github#96). The Dependabot secret store is repo-wide, so every
+# workflow a dependabot PR triggers can read them; that blast radius is
+# accepted. release-please PRs (`github-actions[bot]`) stay excluded.
+#
+# SECURITY: this repo is public and the reusable workflow runs on a self-hosted
+# runner. For a `pull_request` event, GitHub runs the workflow FILE from the PR's
+# own head ref, so a fork PR can edit or delete the `head.repo.full_name` guard
+# below (or re-point `uses:`). That guard is therefore NOT the trust boundary; it
+# only catches accidents. The real control is the repo setting Settings ->
+# Actions -> General -> "Require approval for all outside collaborators"
+# (tracked in s3ntin3l8/.github#139), which
+# must stay on: the runner (filesystem, LAN access) is what is at stake, not the
+# token (fork PRs get no secrets and a read-only token). The on-demand path is
+# unaffected: `issue_comment` always runs the DEFAULT BRANCH's copy of this file,
+# so the author_association gate there is sufficient on its own.
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+    # `opened`           => review once, if the PR starts non-draft.
+    # `ready_for_review`  => review once, if the PR started as a draft (its
+    # `opened` event is skipped below since draft was true at that point).
+  issue_comment:
+    types: [created]
+    # Covers both PR-conversation comments and issue comments. The reusable
+    # workflow's "Check mention" step enforces the "@s3ntin3l8-hermes" substring
+    # in on-demand mode (default), so a plain comment without the mention is a
+    # cheap no-op, not a review.
+
+jobs:
+  auto-review:
+    # NOTE: excluding by PR *author* (github.event.pull_request.user.login),
+    # not github.actor -- on `ready_for_review`, github.actor is whoever
+    # clicked "Ready for review", which is not necessarily who opened the
+    # PR. Author-based exclusion keeps working on both trigger types. This
+    # bot-author list and the mullion/task-* exclusion below are also
+    # enforced centrally inside the reusable workflow itself -- this copy is
+    # defense-in-depth, same as the fork guard, and must not be stricter
+    # than the central list.
+    # Skipped in the template repo itself: it has no self-hosted runner, so the
+    # job would sit queued forever on every PR. Repos created from the template
+    # have a different name and run it normally.
+    if: >-
+      github.repository != 's3ntin3l8/node-backend-template' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 's3ntin3l8-hermes[bot]' &&
+      github.event.pull_request.user.login != 'github-actions[bot]' &&
+      github.event.pull_request.draft == false &&
+      !startsWith(github.event.pull_request.head.ref, 'mullion/task-')
+    permissions:
+      contents: read # all gh calls in the callee use the Hermes App token
+    uses: s3ntin3l8/.github/.github/workflows/hermes-review.yml@main
+    with:
+      mode: auto # review on trigger, no @mention needed
+      mention-trigger: s3ntin3l8-hermes
+      # Dispatch through Hermes' Runs API and poll the run to a terminal
+      # status: the check goes red when the review fails, instead of turning
+      # green the moment the request is accepted (which is how a saturated
+      # gateway used to read as "relayed"). The polling job holds its runner
+      # for the length of the review (minutes). The Runs path also reacts
+      # with an eye to the pull request and to the comment that asked for the
+      # review, so a request is visibly picked up.
+      hermes-use-runs: true
+    secrets: inherit # pragma: allowlist secret
+
+  on-demand-review:
+    # Restrict to trusted commenters -- otherwise any user on a public repo could
+    # post "@s3ntin3l8-hermes Review" and trigger a run that inherits HERMES_*
+    # secrets and executes on the self-hosted runner. Mirrors claude-code.yml's guard.
+    # Skipped in the template repo itself: it has no self-hosted runner, so the
+    # job would sit queued forever on every PR. Repos created from the template
+    # have a different name and run it normally.
+    if: >-
+      github.repository != 's3ntin3l8/node-backend-template' &&
+      github.event_name == 'issue_comment' &&
+      github.actor != 's3ntin3l8-hermes[bot]' &&
+      contains(fromJSON('["MEMBER", "OWNER", "COLLABORATOR"]'), github.event.comment.author_association)
+    permissions:
+      contents: read # all gh calls in the callee use the Hermes App token
+    uses: s3ntin3l8/.github/.github/workflows/hermes-review.yml@main
+    with:
+      mention-trigger: s3ntin3l8-hermes # mode: on-demand is the reusable workflow's default
+      # See the auto-review job above: poll the run instead of firing and
+      # forgetting, so a review that failed is a red check rather than a
+      # silent no-op.
+      hermes-use-runs: true
+    secrets: inherit # pragma: allowlist secret
