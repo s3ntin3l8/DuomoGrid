@@ -127,3 +127,9 @@ Codecov.
 Add real docs here as the project grows past what these two files can hold on their own (e.g. an
 API contract, an architecture decision log, an operational runbook) — this section exists so
 that pattern has an obvious place to start rather than being invented under time pressure later.
+
+<!-- mullion:pointer:start -->
+@AGENTS.md
+
+<!-- Claude Code does not read AGENTS.md on its own; this import delivers it. -->
+<!-- mullion:pointer:end -->
