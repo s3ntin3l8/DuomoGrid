@@ -54,6 +54,20 @@ startup. `build-docker` needs `contents: read` + `packages: write` +
 `security-events: write`; `release-please` needs `contents: write` +
 `pull-requests: write`; `hermes.yml` needs only `contents: read`. See the `s3ntin3l8/.github` README for the full table.
 
+## Commands (Makefile)
+
+| Command | Does |
+|---------|------|
+| `make install` | Install dependencies (`npm ci`). |
+| `make install-hooks` | Install pre-commit + pre-push hooks. |
+| `make dev` | Start the API with reload (`tsx watch`). The desk has its own `npm run dev:web`. |
+| `make test` | Run the Vitest suite. |
+| `make test-coverage` | Run tests with coverage (`vitest run --coverage`). |
+| `make lint` | Run ESLint. |
+| `make typecheck` | Type-check the server and the desk (`tsc --noEmit`). |
+| `make build` | Production build: server to `dist/`, desk to `web/dist/`. |
+| `make clean` | Remove `node_modules`, `dist`, and caches. |
+
 ## Architecture / Layout
 
 - **App factory**: `src/app.ts` exports `buildApp()`, which registers plugins then

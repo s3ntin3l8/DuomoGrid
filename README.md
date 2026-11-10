@@ -42,7 +42,7 @@ Street-level maps and a market index are not in this version. Trends are the med
 
 ## Development
 
-`make test`, `make lint`, and `make typecheck` match the template. See `CLAUDE.md` for CI.
+`make test`, `make lint`, and `make typecheck` match the template. See `AGENTS.md` for CI.
 
 ## License
 
