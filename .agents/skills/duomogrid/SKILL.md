@@ -1,0 +1,66 @@
+---
+name: duomogrid
+description: DuomoGrid's non-obvious correctness invariants — the ingest guard and route encapsulation, the extension↔server payload contract, buy-versus-rent semantics, price history kept in observations, null-not-zero analysis math, assumptions normalization, the hand-mirrored desk types, and the migration/DB-singleton footguns. Read before changing anything in src/, web/, extension/ or drizzle/, when debugging wrong scores or costs, and when reviewing a diff in this repo.
+---
+<!-- mullion:scaffold:duomogrid -->
+
+# DuomoGrid invariants
+
+Each rule below is a mistake that looks fine on its own but breaks something elsewhere in the repo. Files are named so you can check the claim.
+
+## 1. Auth: every data route guards its own prefix
+- `installIngestGuard(app, prefix)` (`src/auth/guard.ts`) adds a `preHandler` hook **inside the route plugin that calls it**. Route plugins are registered without `fastify-plugin`, so the hook is encapsulated. The guard in `listings.ts` does **not** protect a new `src/routes/foo.ts`. Any new route that reads or writes user data must call `installIngestGuard(app, "/foo")` itself, and its test must cover the 401 and 503 cases.
+- The prefix match is `url.startsWith(prefix)`, so `/listings-export` is guarded by the `/listings` guard, but `/listing/...` is not.
+- The guard fails closed: an empty `INGEST_TOKEN` returns **503** and never lets the request through. Keep it that way. The token comparison uses `timingSafeEqual` with a length check first. Don't replace it with `===`.
+- `/users` (template example) has **no guard** and is open to anyone who can reach the port. Never put product data behind it or copy its pattern for new routes.
+- The desk (`web/src/api.ts`) sends `Authorization: Bearer <token>` on every call. The token lives in `localStorage` under `duomo.token`.
+
+## 2. Wiring for a new API prefix
+- `web/vite.config.ts` proxies only `/listings` and `/assumptions` to :3000. A new API prefix used by the desk must be added there too, or it 404s only in `npm run dev:web`.
+- `/` serves `web/dist/index.html` only when `NODE_ENV !== "test"` and the file exists. Otherwise it returns `{ message: "Hello World" }`, and `test/routes/root.test.ts` depends on that. Static assets are only `/assets/*` and `/favicon.svg`. There is no SPA fallback.
+- `web/dist`, `drizzle/` and `.env` are resolved **relative to the process cwd** (`path.resolve(...)`). The server must start from the repo root, or from `/app` in Docker. A new runtime directory needs a `COPY` in the `Dockerfile` production stage.
+
+## 3. The extension→server payload is a compatibility contract
+- `extension/extract.js` sends `v: 1`, `listingKind: "sale" | "rent"`, `hausgeldEur`, `provisionPercent`, `provisionText`, `rentedOut`. `parseIngest` (`src/domain/ingest.ts`) accepts these **and** the canonical names (`offer`, `condoFeeEur`, `commissionPercent`, `commissionText`, `tenantOccupied`). Installed extensions update separately from the server, so never drop an alias. Add new fields to both sides.
+- `parseDeNumber` (extension) and `looseNumber` (server) are deliberate copies of the same German number parser: `"465.000"` → 465000, `"1.234,5"` → 1234.5, `"auf Anfrage"` → null. Change them together.
+- Unknown values fall back on purpose: `offerOf` → `"buy"`, `propertyTypeOf` → `"other"`, `sourceOf` → `"manual"`, an unknown state → `null`. `title` falls back to `"Listing"`. `features` is capped at 24 entries, `snippet` at 600 chars, and PATCH `notes` at 4000 chars.
+- The extension only reads the exposé already open in the tab ("No requests, no crawl"). Don't add fetching, crawling, or results-page scraping to the extension or the server.
+- The popup reads `body.created` from the POST response. POST returns **201 + `created: true`** for a new row and **200 + `created: false`** for an update.
+
+## 4. Buy and rent never share a score
+- For `offer === "rent"`, `parseIngest` stores the cold rent in **both** `priceEur` and `coldRentEur` (`coldRent ?? price`). Observation `priceEur` for a rental is therefore the monthly cold rent, not a purchase price.
+- `analyze()` computes purchase costs, financing, `monthlyTotal`, `grossYield` and the score **only when `offer === "buy"`**. For rentals `score` is `null` and `verdict` is `"rent"`. The desk sorts by `score ?? -1` and shows "Rent" in place of a score. Giving rentals a number would mix them into the buy ranking, which the README says never happens.
+- `cohortSummary` compares only rows with the same `offer`, the same folded city, the same `propertyType`, and living area within 0.7–1.3×. `rentAgainstBuy` returns `null` for non-buy subjects.
+
+## 5. Current price lives in `observations`, not `listings`
+- `listings` has **no price column**. A listing's price is the `priceEur` of its newest observation: `prices()` orders by `seenAt` desc and keeps the first per listing. Any feature that reads price must go through observations.
+- `seenAt`, `createdAt` and `updatedAt` are `new Date().toISOString()` strings, and ordering relies on lexical ISO-UTC order. Don't store local times or another format.
+- A new observation is written only when the price changed **or the previous one was null**. `prices().get(id) ?? null` can't tell "no observation" apart from "null price", so a listing with no known price gets a new observation on every save. Keep that in mind before "fixing" the dedup.
+- Upsert identity is `(source, externalId)`, or else an exact `sourceUrl` longer than 8 chars. A re-ingest overwrites every extracted field but keeps `notes`, `status` and `createdAt`. Don't reset user notes or status on re-save.
+
+## 6. Analysis math: unknown stays `null`, never `0`
+- If the state can't be resolved, `transferTaxEur` is null, and so are `extraEur`, `cashToCloseEur`, `loanEur`, `monthlyDebt` and `monthlyTotal`. `monthlyTotal` is set only when **every** part (debt, heating, condo fee, ground rent) is known. Otherwise only `monthlyPartial` is set. Turning a null into 0 silently flips flags ("Equity does not cover…", "Above the monthly budget") and scores.
+- Exceptions that are intentional: a missing condo fee counts as 0 for `house`, ground rent counts as 0 unless `leasehold`, and a missing commission uses `fallbackCommissionPercent` with `commissionAssumed = true`.
+- All EUR outputs go through `roundEuro`, and fees are computed from the **rounded** price. `test/routes/listings.test.ts` checks exact values: 465000 in HE → transfer tax 27900, notary 2% → 9300.
+- Subscore base weights are 0.35/0.25/0.15/0.15/0.10, then renormalized over the `applicable` parts. Non-applicable parts get weight 0. A new subscore must set `applicable` correctly, or it skews every buy score.
+- Leasehold caps the price subscore at 42, and its €/m² is never compared with freehold.
+- State resolution order: listing → postal code (first two digits of `PLZ2`) → `assumptions.defaultState`. Ambiguous PLZ ranges are **left out on purpose**. Don't "complete" the table. Transfer-tax rates live only in `STATES` (`src/domain/types.ts`).
+- City matching uses `fold()` (lowercase, ä→ae, ö→oe, ü→ue, ß→ss, strip non-alphanumerics). `BENCHMARKS` keys must already be folded (`muenchen`, not `München`). Benchmarks apply only to `propertyType === "apartment"`.
+
+## 7. Assumptions round-trip through `normalizeAssumptions`
+- They are stored as JSON under `settings.key = "assumptions"`. Both GET and PUT, and the listings route, must pass stored or incoming JSON through `normalizeAssumptions`. Old rows with missing fields pick up defaults, and invalid JSON falls back to `DEFAULT_ASSUMPTIONS`.
+- A new assumption touches: `Assumptions` and `DEFAULT_ASSUMPTIONS` (`src/domain/types.ts`), `normalizeAssumptions`, the `Assumptions` type in `web/src/api.ts`, and `web/src/Assumptions.tsx`.
+
+## 8. The desk's types are a hand-written mirror
+- `web/src/api.ts` (`DeskListing`, `Assumptions`, `Flag`, `Subscore`) re-declares the server's `present()` output and `Analysis` by hand. `web/tsconfig.json` doesn't import `src/`, so **`make typecheck` won't catch a renamed or removed field**. Update both sides in the same change.
+- Listing status values `open | visit | offer | pass` are spelled out in the PATCH handler, `ListingStatus`, and the filter list in `web/src/App.tsx`.
+
+## 9. DB, migrations, tests
+- Migrations in `drizzle/` run at startup through `ensureDb()` against the user's SQLite volume. The journal maps idx 2 → `0003_smiling_exodus` and idx 3 → `0003_adorable_hammerhead`, and there is no `0002`. **Never rename, renumber or edit an existing migration.** Change `src/db/schema.ts`, run `npm run db:generate`, and commit the new SQL plus the `meta/` snapshot.
+- `getDb()` is a module singleton that **ignores the URL once open**. Each test must `await app.close()` (which calls `closeDb`) before the next `buildApp()`. Env vars like `INGEST_TOKEN` or `DATABASE_URL` must be set **before** `buildApp()`, because `@fastify/env` reads them once.
+- `test/plugins/db.test.ts` proves migrations ran by calling `GET /users`. Removing the template `users` route means rewriting that test first. Keep migration `0000` and the `users` table either way.
+- Read config through `app.config` (the INGEST_TOKEN guard reads it per request), not `process.env`. The one existing exception is `LOG_LEVEL` in `buildApp()`.
+- The Docker build runs `npm ci --ignore-scripts`. A new native dependency must ship prebuilds (as better-sqlite3 does), because `node:26-slim` has no Python or node-gyp.
+
+## 10. Language
+- UI, flags, notes, code and docs are English. City names, titles and listing text from the portals stay exactly as published. Don't translate or "fix" them on ingest.
