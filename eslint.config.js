@@ -17,6 +17,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ["dist/", "node_modules/", "drizzle/", "coverage/", "extension/"],
+    ignores: ["dist/", "node_modules/", "drizzle/", "coverage/", "extension/", "web/"],
   },
 );

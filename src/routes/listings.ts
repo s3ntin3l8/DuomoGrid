@@ -1,20 +1,13 @@
-import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { desc, eq } from "drizzle-orm";
+import { installIngestGuard } from "../auth/guard.js";
+import { normalizeAssumptions } from "../domain/assumptions.js";
 import { analyze } from "../domain/analyze.js";
 import { cohortSummary, rentAgainstBuy, type CohortRow } from "../domain/compare.js";
 import { parseIngest } from "../domain/ingest.js";
 import { DEFAULT_ASSUMPTIONS } from "../domain/types.js";
-import type { ListingInput, Offer, PropertyType, Source } from "../domain/types.js";
-import { listings, observations } from "../db/schema.js";
-
-function authorized(header: string | undefined, expected: string): boolean {
-  const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
-  const left = Buffer.from(token);
-  const right = Buffer.from(expected);
-  if (left.length === 0 || left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
-}
+import type { Assumptions, ListingInput, Offer, PropertyType, Source } from "../domain/types.js";
+import { listings, observations, settings } from "../db/schema.js";
 
 type ListingRow = typeof listings.$inferSelect;
 
@@ -77,58 +70,101 @@ function toCohort(row: ListingRow, priceEur: number | null): CohortRow {
 }
 
 export async function listingsRoute(app: FastifyInstance) {
-  app.addHook("preHandler", async (request, reply) => {
-    const url = request.url.split("?")[0] ?? "";
-    if (!url.startsWith("/listings")) return;
-    const expected = app.config.INGEST_TOKEN;
-    if (!expected) {
-      return reply.code(503).send({ error: "Ingest token is not configured." });
-    }
-    if (!authorized(request.headers.authorization, expected)) {
-      return reply.code(401).send({ error: "Invalid ingest token." });
-    }
-  });
+  installIngestGuard(app, "/listings");
 
-  function savedPrice(id: string): number | null {
-    const latest = app.db
-      .select()
-      .from(observations)
-      .where(eq(observations.listingId, id))
-      .orderBy(desc(observations.seenAt))
-      .all()[0];
-    return latest?.priceEur ?? null;
+  function assumptions(): Assumptions {
+    const row = app.db.select().from(settings).where(eq(settings.key, "assumptions")).all()[0];
+    if (!row) return DEFAULT_ASSUMPTIONS;
+    try {
+      return normalizeAssumptions(JSON.parse(row.value));
+    } catch {
+      return DEFAULT_ASSUMPTIONS;
+    }
   }
 
-  function present(row: ListingRow) {
-    const priceEur = savedPrice(row.id);
+  function prices(): Map<string, number | null> {
+    const map = new Map<string, number | null>();
+    const rows = app.db.select().from(observations).orderBy(desc(observations.seenAt)).all();
+    for (const row of rows) {
+      if (!map.has(row.listingId)) map.set(row.listingId, row.priceEur);
+    }
+    return map;
+  }
+
+  function history(): Map<string, { seenAt: string; priceEur: number | null }[]> {
+    const map = new Map<string, { seenAt: string; priceEur: number | null }[]>();
+    const rows = app.db.select().from(observations).orderBy(desc(observations.seenAt)).all();
+    for (const row of rows) {
+      const list = map.get(row.listingId) ?? [];
+      if (list.length < 12) list.push({ seenAt: row.seenAt, priceEur: row.priceEur });
+      map.set(row.listingId, list);
+    }
+    return map;
+  }
+
+  function present(row: ListingRow, priceMap: Map<string, number | null>, past: Map<string, { seenAt: string; priceEur: number | null }[]>, model: Assumptions) {
+    const priceEur = priceMap.get(row.id) ?? null;
     const input = asInput(row, priceEur);
-    const analysis = analyze(input, DEFAULT_ASSUMPTIONS);
-    const everyone = app.db.select().from(listings).all().map((item) => toCohort(item, savedPrice(item.id)));
+    const analysis = analyze(input, model);
+    const everyone = app.db
+      .select()
+      .from(listings)
+      .all()
+      .map((item) => toCohort(item, priceMap.get(item.id) ?? null));
     const subject = toCohort(row, priceEur);
     return {
       id: row.id,
       status: row.status,
       notes: row.notes,
+      updatedAt: row.updatedAt,
       listing: input,
       analysis,
+      observations: past.get(row.id) ?? [],
       cohort: cohortSummary(subject, everyone),
       rentComparison: rentAgainstBuy({ ...subject, monthlyCarryingEur: analysis.monthlyTotal }, everyone),
     };
   }
 
+  function context() {
+    return { priceMap: prices(), past: history(), model: assumptions() };
+  }
+
   app.get("/listings", async () => {
+    const ctx = context();
     return app.db
       .select()
       .from(listings)
       .all()
-      .map((row) => present(row));
+      .map((row) => present(row, ctx.priceMap, ctx.past, ctx.model));
   });
 
   app.get<{ Params: { id: string } }>("/listings/:id", async (request, reply) => {
     const row = app.db.select().from(listings).where(eq(listings.id, request.params.id)).all()[0];
     if (!row) return reply.code(404).send({ error: "Listing not found." });
-    return present(row);
+    const ctx = context();
+    return present(row, ctx.priceMap, ctx.past, ctx.model);
   });
+
+  app.patch<{ Params: { id: string }; Body: { notes?: unknown; status?: unknown } }>(
+    "/listings/:id",
+    async (request, reply) => {
+      const row = app.db.select().from(listings).where(eq(listings.id, request.params.id)).all()[0];
+      if (!row) return reply.code(404).send({ error: "Listing not found." });
+      const notes = typeof request.body?.notes === "string" ? request.body.notes.slice(0, 4000) : row.notes;
+      const nextStatus =
+        typeof request.body?.status === "string" && ["open", "visit", "offer", "pass"].includes(request.body.status)
+          ? request.body.status
+          : row.status;
+      app.db
+        .update(listings)
+        .set({ notes, status: nextStatus, updatedAt: new Date().toISOString() })
+        .where(eq(listings.id, row.id))
+        .run();
+      const stored = app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0];
+      const ctx = context();
+      return present(stored, ctx.priceMap, ctx.past, ctx.model);
+    },
+  );
 
   app.post("/listings", async (request, reply) => {
     const parsed = parseIngest(request.body);
@@ -187,7 +223,7 @@ export async function listingsRoute(app: FastifyInstance) {
     } else {
       app.db.insert(listings).values(values).run();
     }
-    const previous = savedPrice(id);
+    const previous = prices().get(id) ?? null;
     const nextPrice = listing.priceEur;
     if (previous == null || previous !== nextPrice) {
       app.db.insert(observations).values({
@@ -201,7 +237,8 @@ export async function listingsRoute(app: FastifyInstance) {
       }).run();
     }
     const stored = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+    const ctx = context();
     reply.code(existing ? 200 : 201);
-    return { created: !existing, ...present(stored) };
+    return { created: !existing, ...present(stored, ctx.priceMap, ctx.past, ctx.model) };
   });
 }

@@ -36,6 +36,7 @@ ENV NODE_ENV=production
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/web/dist ./web/dist
 COPY --from=build /app/package.json ./
 # Migrations are applied at startup by ensureDb() (resolves ./drizzle).
 COPY --from=build /app/drizzle ./drizzle

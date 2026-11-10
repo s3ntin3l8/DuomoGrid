@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bfe1dfd9-0b09-499b-93c3-89d36dd38ee7",
-  "prevId": "ab7ec60b-b0ff-48ec-8f0e-23cb0e5ca2d5",
+  "id": "bdbdb513-b4f9-42fd-9a78-4073a88973f1",
+  "prevId": "bfe1dfd9-0b09-499b-93c3-89d36dd38ee7",
   "tables": {
     "listings": {
       "name": "listings",
@@ -371,6 +371,30 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "settings": {
+      "name": "settings",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

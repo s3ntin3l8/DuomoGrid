@@ -2,7 +2,8 @@
 
 Self-hosted Fastify service for buy and rent listings the user chooses to save.
 The browser extension reads only the exposé already open on ImmoScout24 or Immowelt
-and POSTs it to `/listings`. Analysis (purchase costs, financing, energy, rent-versus-buy)
+and POSTs it to `/listings`. The desk in `web/` is a Vite app, built into `web/dist` and served
+on `/` outside of tests. Analysis (purchase costs, financing, energy, rent-versus-buy)
 runs on the server. SQLite lives in a Docker volume. UI, code, and docs are English.
 City names and listing text stay as published.
 

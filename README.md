@@ -12,7 +12,16 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The API listens on port 3000. `GET /health` is the liveness check. Listing routes require `Authorization: Bearer $INGEST_TOKEN`.
+The API listens on port 3000. After `npm run build`, that same port serves the desk. `GET /health` is the liveness check. Listing routes require `Authorization: Bearer $INGEST_TOKEN`.
+
+For UI work with reload, run the API and the desk separately:
+
+```bash
+make dev
+npm run dev:web
+```
+
+The desk on port 5173 proxies `/listings` and `/assumptions` to port 3000. Paste the ingest token once; it stays in this browser.
 
 Without Docker:
 
@@ -25,11 +34,11 @@ SQLite defaults to `file:./data/app.db`.
 
 ## Extension
 
-Load `extension/` as an unpacked extension. Set the server URL and the same ingest token in the popup, then open a single exposé and choose **Save to DuomoGrid**. A second save of the same listing updates the row and adds a price observation only when the price changed.
+Load `extension/` as an unpacked extension. Set the server URL and the same ingest token in the popup, then open a single exposé and choose **Save to DuomoGrid**. A second save of the same listing updates the row and adds a price observation only when the price changed. Open the desk at the server URL, paste the token, and the listing is there.
 
 ## What is not here yet
 
-There is no web UI in this repo yet. The extension and the API are the first slice. Trends are the medians of listings you saved, not a market index.
+Street-level maps and a market index are not in this version. Trends are the medians of listings you saved.
 
 ## Development
 

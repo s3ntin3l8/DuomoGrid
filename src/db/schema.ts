@@ -53,6 +53,11 @@ export const listings = sqliteTable("listings", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
+
 export const observations = sqliteTable("observations", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   listingId: text("listing_id")

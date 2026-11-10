@@ -63,6 +63,30 @@ describe("listings", () => {
     });
     expect(listed.statusCode).toBe(200);
     expect(listed.json()).toHaveLength(1);
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/listings/${created.json().id}`,
+      headers: { authorization: "Bearer test-token" },
+      payload: { notes: "Ask about the roof", status: "visit" },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json().notes).toBe("Ask about the roof");
+    expect(patched.json().status).toBe("visit");
+
+    const assumptions = await app.inject({
+      method: "PUT",
+      url: "/assumptions",
+      headers: { authorization: "Bearer test-token" },
+      payload: { notaryPercent: 2 },
+    });
+    expect(assumptions.statusCode).toBe(200);
+    const scored = await app.inject({
+      method: "GET",
+      url: `/listings/${created.json().id}`,
+      headers: { authorization: "Bearer test-token" },
+    });
+    expect(scored.json().analysis.notaryEur).toBe(9300);
     await app.close();
   });
 });
