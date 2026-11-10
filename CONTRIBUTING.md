@@ -1,6 +1,8 @@
 <!-- mullion:moved:start -->
 ## Repository setup
 
+Agent-facing repo rules (layout, commands, CI scope grants, invariants) live in [`AGENTS.md`](AGENTS.md).
+
 One-time settings carried over from `node-backend-template`. Revisit them when changing CI coverage or sharding, or when review/coverage uploads are silently skipped.
 
 - Decide your CI coverage floor: `ci-cd.yml` ships `test-script: "test:coverage"`;
