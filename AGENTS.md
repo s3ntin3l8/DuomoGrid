@@ -126,9 +126,11 @@ The full list, with reasons, is in `.claude/skills/duomogrid/SKILL.md`. Read it 
 
 ## Documentation map
 
+- `CLAUDE.md` — a deliberate shim: the title plus the `@AGENTS.md` import that Claude Code needs. Don't delete it or add content to it.
 - `README.md` — run instructions, the extension, and what is not built yet.
 - `AGENTS.md` (this file) — the live contract for how the repo is wired: layout, invariants,
   CI/CD conventions. Keep it in sync with the code, not with what the code used to do.
 - `.claude/skills/duomogrid/SKILL.md` — correctness invariants; `.claude/agents/duomogrid-reviewer.md` applies them in review.
 - `.agents/skills/duomogrid/` — a byte-identical copy of the skill for agent CLIs that read `.agents/` instead of `.claude/`. Edit both together; `npm run lint` (`check:skill-mirror`) fails when they differ.
+  The reviewer pair (`.claude/agents/duomogrid-reviewer.md` and `.agents/skills/duomogrid-reviewer/SKILL.md`) has the same body under different front matter, and nothing checks it: edit both together.
 - `CONTRIBUTING.md` — one-time repository setup (coverage floor, sharding, review and Codecov secrets).
