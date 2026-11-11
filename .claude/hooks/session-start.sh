@@ -9,5 +9,6 @@ fi
 cd "${CLAUDE_PROJECT_DIR:-.}"
 
 # Install dependencies so linters and tests are ready.
-# npm install (not ci) plays nicer with the cached container state.
-npm install
+# npm ci, like CI and the Dockerfile: it installs exactly what package-lock.json
+# pins and never rewrites it, so a session doesn't start with a dirty lockfile.
+npm ci
