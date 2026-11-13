@@ -5,11 +5,13 @@ import {
   loadListing,
   loadListings,
   rememberToken,
+  removeListing,
   saveAssumptions,
   saveListing,
   storedToken,
   type Assumptions,
   type DeskListing,
+  type ListingPatch,
   type StateOption,
 } from "./api";
 import { AssumptionsForm } from "./Assumptions";
@@ -102,7 +104,7 @@ export function App() {
     });
   }
 
-  async function mutate(id: string, body: { notes?: string; status?: string; latitude?: number; longitude?: number; clearPoint?: boolean }) {
+  async function mutate(id: string, body: ListingPatch) {
     const updated = await saveListing(token, id, body);
     setRows((current) => current.map((row) => (row.id === id ? updated : row)));
   }
@@ -244,9 +246,31 @@ export function App() {
         {mode === "detail" && active ? (
           <Detail
             row={active}
+            states={states}
             onBack={() => setReading(false)}
             onStatus={(next) => void mutate(active.id, { status: next })}
             onNotes={(notes) => void mutate(active.id, { notes })}
+            onCorrect={async (correction) => {
+              try {
+                await mutate(active.id, correction);
+                setError("");
+              } catch (reason: unknown) {
+                setError(reason instanceof Error ? reason.message : "Could not save the correction.");
+                throw reason;
+              }
+            }}
+            onRemove={async () => {
+              const id = active.id;
+              try {
+                await removeListing(token, id);
+                setRows((current) => current.filter((row) => row.id !== id));
+                setPicked((current) => current.filter((item) => item !== id));
+                setError("");
+              } catch (reason: unknown) {
+                setError(reason instanceof Error ? reason.message : "Could not remove the listing.");
+                throw reason;
+              }
+            }}
             onClearPoint={() => void mutate(active.id, { clearPoint: true })}
             landPending={landPendingId === active.id && active.bodenrichtwert?.status === "unknown"}
             landMiss={landMissId === active.id && active.bodenrichtwert?.status === "unknown"}

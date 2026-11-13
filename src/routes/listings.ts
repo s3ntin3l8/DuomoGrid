@@ -7,7 +7,7 @@ import { cohortSummary, rentAgainstBuy, type CohortRow } from "../domain/compare
 import { exactPoint, parseIngest } from "../domain/ingest.js";
 import { districtSaleBandFor } from "../domain/district-band.js";
 import { fetchBodenrichtwert, type Bodenrichtwert } from "../domain/bodenrichtwert.js";
-import { DEFAULT_ASSUMPTIONS } from "../domain/types.js";
+import { DEFAULT_ASSUMPTIONS, STATES } from "../domain/types.js";
 import type { Assumptions, ListingInput, Offer, PropertyType, Source } from "../domain/types.js";
 import { listings, observations, settings } from "../db/schema.js";
 
@@ -127,6 +127,95 @@ function asBodenrichtwert(view: ReturnType<typeof bodenrichtwertView>): Bodenric
   if (view.status === "none") return { status: "none" };
   if (view.status === "unpublished") return { status: "unpublished", zone: view.zone, stichtag: view.stichtag };
   return { status: "published", zone: view.zone, eurPerM2: view.eurPerM2, stichtag: view.stichtag };
+}
+
+const PROPERTY_TYPES = new Set(["apartment", "house", "land", "multi", "other"]);
+const ENERGY_CLASSES = new Set(["A+", "A", "B", "C", "D", "E", "F", "G", "H"]);
+
+type FactPatch = {
+  livingAreaM2?: number | null;
+  plotAreaM2?: number | null;
+  rooms?: number | null;
+  city?: string;
+  district?: string | null;
+  state?: ListingInput["state"];
+  propertyType?: PropertyType;
+  yearBuilt?: number | null;
+  energyClass?: string | null;
+  priceEur?: number | null;
+};
+
+function owns(body: object, key: string) {
+  return Object.prototype.hasOwnProperty.call(body, key);
+}
+
+function optionalPositive(value: unknown, label: string): { ok: true; value: number | null } | { ok: false; error: string } {
+  if (value === null || value === "") return { ok: true, value: null };
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return { ok: true, value };
+  return { ok: false, error: `${label} must be a positive number, or empty.` };
+}
+
+function readFacts(body: Record<string, unknown>): { ok: true; facts: FactPatch } | { ok: false; error: string } {
+  const facts: FactPatch = {};
+  if (owns(body, "livingAreaM2")) {
+    const parsed = optionalPositive(body.livingAreaM2, "Living area");
+    if (!parsed.ok) return parsed;
+    facts.livingAreaM2 = parsed.value;
+  }
+  if (owns(body, "plotAreaM2")) {
+    const parsed = optionalPositive(body.plotAreaM2, "Plot area");
+    if (!parsed.ok) return parsed;
+    facts.plotAreaM2 = parsed.value;
+  }
+  if (owns(body, "rooms")) {
+    const parsed = optionalPositive(body.rooms, "Rooms");
+    if (!parsed.ok) return parsed;
+    facts.rooms = parsed.value;
+  }
+  if (owns(body, "priceEur")) {
+    const parsed = optionalPositive(body.priceEur, "Price");
+    if (!parsed.ok) return parsed;
+    facts.priceEur = parsed.value;
+  }
+  if (owns(body, "city")) {
+    const value = body.city;
+    if (value === null || value === "") facts.city = "";
+    else if (typeof value !== "string") return { ok: false, error: "City must be text." };
+    else facts.city = value.trim().slice(0, 120);
+  }
+  if (owns(body, "district")) {
+    const value = body.district;
+    if (value === null || value === "") facts.district = null;
+    else if (typeof value !== "string") return { ok: false, error: "District must be text." };
+    else {
+      const trimmed = value.trim().slice(0, 120);
+      facts.district = trimmed.length > 0 ? trimmed : null;
+    }
+  }
+  if (owns(body, "state")) {
+    const value = body.state;
+    if (value === null || value === "") facts.state = null;
+    else if (typeof value === "string" && STATES.some((item) => item.id === value)) facts.state = value as ListingInput["state"];
+    else return { ok: false, error: "Unknown state." };
+  }
+  if (owns(body, "propertyType")) {
+    const value = body.propertyType;
+    if (typeof value === "string" && PROPERTY_TYPES.has(value)) facts.propertyType = value as PropertyType;
+    else return { ok: false, error: "Unknown property type." };
+  }
+  if (owns(body, "yearBuilt")) {
+    const value = body.yearBuilt;
+    if (value === null || value === "") facts.yearBuilt = null;
+    else if (typeof value === "number" && Number.isInteger(value) && value >= 1600 && value <= 2100) facts.yearBuilt = value;
+    else return { ok: false, error: "Year built must be an integer from 1600 to 2100, or empty." };
+  }
+  if (owns(body, "energyClass")) {
+    const value = body.energyClass;
+    if (value === null || value === "") facts.energyClass = null;
+    else if (typeof value === "string" && ENERGY_CLASSES.has(value)) facts.energyClass = value;
+    else return { ok: false, error: "Energy class must be A+ to H, or empty." };
+  }
+  return { ok: true, facts };
 }
 
 export async function listingsRoute(app: FastifyInstance) {
@@ -249,46 +338,105 @@ export async function listingsRoute(app: FastifyInstance) {
     return present(stored, ctx.priceMap, ctx.past, ctx.model);
   });
 
-  app.patch<{ Params: { id: string }; Body: { notes?: unknown; status?: unknown; latitude?: unknown; longitude?: unknown; clearPoint?: unknown } }>(
-    "/listings/:id",
-    async (request, reply) => {
-      const row = app.db.select().from(listings).where(eq(listings.id, request.params.id)).all()[0];
-      if (!row) return reply.code(404).send({ error: "Listing not found." });
-      const notes = typeof request.body?.notes === "string" ? request.body.notes.slice(0, 4000) : row.notes;
-      const nextStatus =
-        typeof request.body?.status === "string" && ["open", "visit", "offer", "pass"].includes(request.body.status)
-          ? request.body.status
-          : row.status;
-      const body = request.body ?? {};
-      const wantsClear = body.clearPoint === true;
-      const wantsMove = Object.prototype.hasOwnProperty.call(body, "latitude") || Object.prototype.hasOwnProperty.call(body, "longitude");
-      if (wantsClear && wantsMove) return reply.code(400).send({ error: "Send a point or clearPoint, not both." });
-      let latitude = row.latitude;
-      let longitude = row.longitude;
-      let locationPrecision = row.locationPrecision === "exact" ? "exact" : null;
-      if (wantsClear) {
-        latitude = null;
-        longitude = null;
-        locationPrecision = null;
-      } else if (wantsMove) {
-        const placed = exactPoint(body.latitude, body.longitude);
-        if (!placed) return reply.code(400).send({ error: "A point needs both coordinates in range." });
-        latitude = placed.latitude;
-        longitude = placed.longitude;
-        locationPrecision = "exact";
-      }
-      const pointMoved = !samePoint(row.latitude, row.longitude, latitude, longitude);
-      const brw = pointMoved ? clearedBrw() : keptBrw(row);
-      app.db
-        .update(listings)
-        .set({ notes, status: nextStatus, latitude, longitude, locationPrecision, ...brw, updatedAt: new Date().toISOString() })
-        .where(eq(listings.id, row.id))
-        .run();
-      const stored = app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0];
-      const ctx = context();
-      return present(stored, ctx.priceMap, ctx.past, ctx.model);
-    },
-  );
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      notes?: unknown;
+      status?: unknown;
+      latitude?: unknown;
+      longitude?: unknown;
+      clearPoint?: unknown;
+      livingAreaM2?: unknown;
+      plotAreaM2?: unknown;
+      rooms?: unknown;
+      city?: unknown;
+      district?: unknown;
+      state?: unknown;
+      propertyType?: unknown;
+      yearBuilt?: unknown;
+      energyClass?: unknown;
+      priceEur?: unknown;
+    };
+  }>("/listings/:id", async (request, reply) => {
+    const row = app.db.select().from(listings).where(eq(listings.id, request.params.id)).all()[0];
+    if (!row) return reply.code(404).send({ error: "Listing not found." });
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const parsed = readFacts(body);
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    const facts = parsed.facts;
+    const notes = typeof body.notes === "string" ? body.notes.slice(0, 4000) : row.notes;
+    const nextStatus =
+      typeof body.status === "string" && ["open", "visit", "offer", "pass"].includes(body.status) ? body.status : row.status;
+    const wantsClear = body.clearPoint === true;
+    const wantsMove = owns(body, "latitude") || owns(body, "longitude");
+    if (wantsClear && wantsMove) return reply.code(400).send({ error: "Send a point or clearPoint, not both." });
+    let latitude = row.latitude;
+    let longitude = row.longitude;
+    let locationPrecision = row.locationPrecision === "exact" ? "exact" : null;
+    if (wantsClear) {
+      latitude = null;
+      longitude = null;
+      locationPrecision = null;
+    } else if (wantsMove) {
+      const placed = exactPoint(body.latitude, body.longitude);
+      if (!placed) return reply.code(400).send({ error: "A point needs both coordinates in range." });
+      latitude = placed.latitude;
+      longitude = placed.longitude;
+      locationPrecision = "exact";
+    }
+    const pointMoved = !samePoint(row.latitude, row.longitude, latitude, longitude);
+    const brw = pointMoved ? clearedBrw() : keptBrw(row);
+    const now = new Date().toISOString();
+    const priceTouched = facts.priceEur !== undefined;
+    const nextPrice = facts.priceEur ?? null;
+    const previousPrice = priceTouched ? (prices().get(row.id) ?? null) : null;
+    const priceChanged = priceTouched && previousPrice !== nextPrice;
+    app.db
+      .update(listings)
+      .set({
+        notes,
+        status: nextStatus,
+        latitude,
+        longitude,
+        locationPrecision,
+        ...brw,
+        livingAreaM2: facts.livingAreaM2 !== undefined ? facts.livingAreaM2 : row.livingAreaM2,
+        plotAreaM2: facts.plotAreaM2 !== undefined ? facts.plotAreaM2 : row.plotAreaM2,
+        rooms: facts.rooms !== undefined ? facts.rooms : row.rooms,
+        city: facts.city !== undefined ? facts.city : row.city,
+        district: facts.district !== undefined ? facts.district : row.district,
+        state: facts.state !== undefined ? facts.state : row.state,
+        propertyType: facts.propertyType ?? row.propertyType,
+        yearBuilt: facts.yearBuilt !== undefined ? facts.yearBuilt : row.yearBuilt,
+        energyClass: facts.energyClass !== undefined ? facts.energyClass : row.energyClass,
+        coldRentEur: priceChanged && row.offer === "rent" ? nextPrice : row.coldRentEur,
+        updatedAt: now,
+      })
+      .where(eq(listings.id, row.id))
+      .run();
+    if (priceChanged) {
+      app.db.insert(observations).values({
+        listingId: row.id,
+        seenAt: now,
+        priceEur: nextPrice,
+        coldRentEur: row.offer === "rent" ? nextPrice : row.coldRentEur,
+        warmRentEur: row.warmRentEur,
+        condoFeeEur: row.condoFeeEur,
+        rawJson: JSON.stringify(request.body ?? {}),
+      }).run();
+    }
+    const stored = app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0];
+    const ctx = context();
+    return present(stored, ctx.priceMap, ctx.past, ctx.model);
+  });
+
+  app.delete<{ Params: { id: string } }>("/listings/:id", async (request, reply) => {
+    const row = app.db.select().from(listings).where(eq(listings.id, request.params.id)).all()[0];
+    if (!row) return reply.code(404).send({ error: "Listing not found." });
+    app.db.delete(observations).where(eq(observations.listingId, row.id)).run();
+    app.db.delete(listings).where(eq(listings.id, row.id)).run();
+    return { deleted: true };
+  });
 
   app.post("/listings", async (request, reply) => {
     const parsed = parseIngest(request.body);

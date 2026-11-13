@@ -46,6 +46,7 @@ export type DeskListing = {
     propertyType: string;
     priceEur: number | null;
     livingAreaM2: number | null;
+    plotAreaM2: number | null;
     rooms: number | null;
     yearBuilt: number | null;
     energyClass: string | null;
@@ -164,12 +165,30 @@ export function loadListing(token: string, id: string) {
   return request<DeskListing>(token, `/listings/${id}`);
 }
 
-export function saveListing(
-  token: string,
-  id: string,
-  body: { notes?: string; status?: string; latitude?: number; longitude?: number; clearPoint?: boolean },
-) {
+export type ListingPatch = {
+  notes?: string;
+  status?: string;
+  latitude?: number;
+  longitude?: number;
+  clearPoint?: boolean;
+  livingAreaM2?: number | null;
+  plotAreaM2?: number | null;
+  rooms?: number | null;
+  city?: string;
+  district?: string | null;
+  state?: string | null;
+  propertyType?: string;
+  yearBuilt?: number | null;
+  energyClass?: string | null;
+  priceEur?: number | null;
+};
+
+export function saveListing(token: string, id: string, body: ListingPatch) {
   return request<DeskListing>(token, `/listings/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+}
+
+export function removeListing(token: string, id: string) {
+  return request<{ deleted: boolean }>(token, `/listings/${id}`, { method: "DELETE" });
 }
 
 export function loadAssumptions(token: string) {
