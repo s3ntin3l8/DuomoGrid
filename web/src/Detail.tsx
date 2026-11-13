@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DeskListing, ListingPatch, StateOption } from "./api";
 import { Gallery } from "./Gallery";
+import { PriceHistoryBlock } from "./PriceHistory";
 import { area, eur, num, perM2Text, propertyLabel, statusLabel, STATUSES, when } from "./format";
 
 export function Detail({
@@ -171,16 +172,7 @@ export function Detail({
       <Gallery row={row} part="floorplans" />
       <Findings row={row} />
       <DescriptionText row={row} />
-      {row.observations.length > 1 ? (
-        <section className="block">
-          <h3>Price history</h3>
-          <dl>
-            {row.observations.map((point) => (
-              <Line key={point.seenAt} label={when(point.seenAt)} value={eur(point.priceEur)} />
-            ))}
-          </dl>
-        </section>
-      ) : null}
+      <PriceHistoryBlock row={row} />
       <section className="block">
         <h3>Notes</h3>
         <Notes initial={row.notes} onSave={onNotes} />

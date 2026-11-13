@@ -121,6 +121,20 @@ export type DeskListing = {
     benchmarkDeltaPct: number | null;
   };
   observations: { seenAt: string; priceEur: number | null }[];
+  priceHistory: {
+    /** Oldest to newest. The portal's earlier price comes first, undated, when it adds something. */
+    points: { priceEur: number; at: string | null; source: "portal" | "saved" }[];
+    firstKnownPriceEur: number | null;
+    currentPriceEur: number | null;
+    totalChangeEur: number | null;
+    totalChangePct: number | null;
+    reductions: number;
+    increases: number;
+    lastChangeAt: string | null;
+    startedAt: string;
+    startedBasis: "portal" | "saved";
+    daysOnMarket: number;
+  };
   cohort: { count: number; medianEurPerM2: number | null; deltaPct: number | null };
   rentComparison: {
     rentCount: number;

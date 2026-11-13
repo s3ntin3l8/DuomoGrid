@@ -1085,4 +1085,193 @@ describe("listings", () => {
     expect(imgSrc).not.toContain("*");
     await app.close();
   });
+
+  it("builds the price history from saves and the portal's earlier price, and keeps the first one reported", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const base = {
+      source: "immowelt",
+      sourceUrl: "https://www.immowelt.de/expose/dddd",
+      externalId: "dddd",
+      title: "History",
+      livingAreaM2: 100,
+      city: "Hepberg",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+      listedAt: "2026-10-30T12:00:00.000Z",
+    };
+    const first = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, priceEur: 319000, portalPreviousPriceEur: 329000 } });
+    const id = first.json().id as string;
+    expect(first.json().priceHistory).toMatchObject({ firstKnownPriceEur: 329000, currentPriceEur: 319000, reductions: 1, startedBasis: "portal" });
+    expect(first.json().priceHistory.points[0]).toEqual({ priceEur: 329000, at: null, source: "portal" });
+
+    // The portal cuts again and now reports 319000 as the earlier price. 329000 is the one that predates what we saw.
+    const second = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, priceEur: 299000, portalPreviousPriceEur: 319000 } });
+    expect(second.json().priceHistory.points.map((point: { priceEur: number }) => point.priceEur)).toEqual([329000, 319000, 299000]);
+    expect(second.json().priceHistory).toMatchObject({ reductions: 2, currentPriceEur: 299000, firstKnownPriceEur: 329000 });
+    expect(second.json().priceHistory.totalChangePct).toBeCloseTo((-30000 / 329000) * 100);
+
+    // A save without the key keeps it too, and the same price adds no observation.
+    await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, priceEur: 299000 } });
+    const stored = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+    expect(stored?.portalPreviousPriceEur).toBe(329000);
+    expect(app.db.select().from(observations).where(eq(observations.listingId, id)).all()).toHaveLength(2);
+
+    // The list caps the observations it sends at 12; the history behind priceHistory does not.
+    for (let price = 298000; price > 298000 - 15 * 1000; price -= 1000) {
+      await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, priceEur: price } });
+    }
+    type Row = { id: string; observations: unknown[]; priceHistory: { reductions: number } };
+    const listed = ((await app.inject({ method: "GET", url: "/listings", headers })).json() as Row[]).find((item) => item.id === id) as Row;
+    expect(listed.observations).toHaveLength(12);
+    expect(listed.priceHistory.reductions).toBe(17);
+    const detail = (await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json() as Row;
+    expect(detail.observations).toHaveLength(17);
+    await app.close();
+  });
+
+  it("refreshes only a saved listing when asked to update only, and never saves a new one", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const payload = {
+      source: "immobilienscout24",
+      sourceUrl: "https://www.immobilienscout24.de/expose/777001",
+      externalId: "777001",
+      title: "Update only",
+      priceEur: 400000,
+      livingAreaM2: 80,
+      city: "Landshut",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+    };
+    const before = app.db.select().from(listings).all().length;
+    const unsaved = await app.inject({ method: "POST", url: "/listings?updateOnly=1", headers, payload });
+    expect(unsaved.statusCode).toBe(204);
+    expect(unsaved.body).toBe("");
+    expect(app.db.select().from(listings).all()).toHaveLength(before);
+
+    const saved = await app.inject({ method: "POST", url: "/listings", headers, payload });
+    expect(saved.statusCode).toBe(201);
+    const id = saved.json().id as string;
+    await app.inject({ method: "PATCH", url: `/listings/${id}`, headers, payload: { notes: "keep me", status: "visit" } });
+
+    const refreshed = await app.inject({ method: "POST", url: "/listings?updateOnly=1", headers, payload: { ...payload, priceEur: 380000 } });
+    expect(refreshed.statusCode).toBe(200);
+    expect(refreshed.json().created).toBe(false);
+    expect(refreshed.json().id).toBe(id);
+    expect(refreshed.json().notes).toBe("keep me");
+    expect(refreshed.json().status).toBe("visit");
+    expect(refreshed.json().priceHistory.reductions).toBe(1);
+    expect(app.db.select().from(observations).where(eq(observations.listingId, id)).all()).toHaveLength(2);
+
+    // The guard still applies to the query form.
+    const denied = await app.inject({ method: "POST", url: "/listings?updateOnly=1", payload });
+    expect(denied.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("treats an update-only save as a price check: corrections stay, nothing is erased, a null price is not recorded", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const payload = {
+      source: "immobilienscout24",
+      sourceUrl: "https://www.immobilienscout24.de/expose/777002",
+      externalId: "777002",
+      title: "Price check",
+      priceEur: 400000,
+      livingAreaM2: 80,
+      rooms: 3,
+      city: "Landshut",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+      energyClass: "C",
+      description: { object: "Original text." },
+    };
+    const saved = await app.inject({ method: "POST", url: "/listings", headers, payload });
+    const id = saved.json().id as string;
+    await app.inject({ method: "PATCH", url: `/listings/${id}`, headers, payload: { livingAreaM2: 95, city: "Corrected" } });
+
+    // The page shows a new price, a different area, no rooms, and a partly loaded description.
+    const checked = await app.inject({
+      method: "POST",
+      url: "/listings?updateOnly=true",
+      headers,
+      payload: { ...payload, priceEur: 380000, livingAreaM2: 60, rooms: null, energyClass: null, description: { object: "Different." }, listedAt: "2026-11-01T00:00:00.000Z" },
+    });
+    expect(checked.statusCode).toBe(200);
+    const after = (await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json();
+    expect(after.listing).toMatchObject({ priceEur: 380000, livingAreaM2: 95, city: "Corrected", rooms: 3, energyClass: "C", listedAt: "2026-11-01T00:00:00.000Z" });
+    expect(after.listing.description.object).toBe("Original text.");
+    expect(app.db.select().from(observations).where(eq(observations.listingId, id)).all()).toHaveLength(2);
+
+    // A page that shows no price does not null the stored one.
+    const blank = await app.inject({ method: "POST", url: "/listings?updateOnly=1", headers, payload: { ...payload, priceEur: null } });
+    expect(blank.statusCode).toBe(200);
+    expect(blank.json().listing.priceEur).toBe(380000);
+    expect(app.db.select().from(observations).where(eq(observations.listingId, id)).all()).toHaveLength(2);
+
+    // The same price again writes nothing at all.
+    const stamp = app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.updatedAt;
+    await app.inject({ method: "POST", url: "/listings?updateOnly=1", headers, payload: { ...payload, priceEur: 380000, listedAt: "2026-11-01T00:00:00.000Z" } });
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.updatedAt).toBe(stamp);
+    await app.close();
+  });
+
+  it("keeps a rental's cold rent in step when an update-only save sees a new rent", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const payload = {
+      source: "immowelt",
+      sourceUrl: "https://www.immowelt.de/expose/rent1",
+      externalId: "rent1",
+      title: "Rent",
+      priceEur: 1400,
+      coldRentEur: 1400,
+      livingAreaM2: 70,
+      city: "Landshut",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "rent",
+    };
+    const saved = await app.inject({ method: "POST", url: "/listings", headers, payload });
+    const id = saved.json().id as string;
+    const checked = await app.inject({ method: "POST", url: "/listings?updateOnly=1", headers, payload: { ...payload, priceEur: 1350, coldRentEur: 1350 } });
+    expect(checked.json().listing.coldRentEur).toBe(1350);
+    expect(checked.json().analysis.rentPerM2).toBeCloseTo(1350 / 70);
+    expect(checked.json().analysis.score).toBeNull();
+    expect(app.db.select().from(observations).where(eq(observations.listingId, id)).all()).toHaveLength(2);
+    await app.close();
+  });
+
+  it("ignores an earlier price that arrives after this desk has seen the price move", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const base = {
+      source: "immowelt",
+      sourceUrl: "https://www.immowelt.de/expose/late1",
+      externalId: "late1",
+      title: "Late",
+      livingAreaM2: 100,
+      city: "Hepberg",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+    };
+    const first = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, priceEur: 500000 } });
+    const id = first.json().id as string;
+    await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, priceEur: 450000 } });
+    const late = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, priceEur: 400000, portalPreviousPriceEur: 450000 } });
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.portalPreviousPriceEur).toBeNull();
+    expect(late.json().priceHistory.points.map((point: { priceEur: number }) => point.priceEur)).toEqual([500000, 450000, 400000]);
+    expect(late.json().priceHistory).toMatchObject({ reductions: 2, increases: 0 });
+    await app.close();
+  });
 });

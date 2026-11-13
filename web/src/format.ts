@@ -45,6 +45,28 @@ export function priceMoveText(change: number | null): string | null {
   return label == null ? null : `price ${label}`;
 }
 
+export type DeskHistory = {
+  totalChangePct: number | null;
+  reductions: number;
+  startedBasis: "portal" | "saved";
+  daysOnMarket: number;
+};
+
+/** "−3% · 2 cuts · 45 d online" for a list row. The time is shown only when the portal gave the date. */
+export function historyText(history: DeskHistory): string | null {
+  const change = moveLabel(history.totalChangePct);
+  const cuts = history.reductions > 0 ? `${history.reductions} ${history.reductions === 1 ? "cut" : "cuts"}` : null;
+  const online = history.startedBasis === "portal" ? `${history.daysOnMarket} d online` : null;
+  const text = [change, cuts, online].filter(Boolean).join(" · ");
+  return text || null;
+}
+
+export function historyTone(history: DeskHistory): "down" | "up" | undefined {
+  const change = history.totalChangePct;
+  if (change == null || Math.round(Math.abs(change)) === 0) return undefined;
+  return change < 0 ? "down" : "up";
+}
+
 export function when(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
