@@ -158,7 +158,15 @@ export async function listingsRoute(app: FastifyInstance) {
   function present(row: ListingRow, priceMap: Map<string, number | null>, past: Map<string, { seenAt: string; priceEur: number | null }[]>, model: Assumptions) {
     const priceEur = priceMap.get(row.id) ?? null;
     const input = asInput(row, priceEur);
-    const analysis = analyze(input, model);
+    const districtSaleBand = districtSaleBandFor({
+      offer: row.offer,
+      propertyType: row.propertyType,
+      city: row.city,
+      district: row.district,
+      state: row.state,
+    });
+    const bodenrichtwert = bodenrichtwertView(row);
+    const analysis = analyze(input, model, { bodenrichtwert, districtSaleBand });
     const everyone = app.db
       .select()
       .from(listings)
@@ -175,14 +183,8 @@ export async function listingsRoute(app: FastifyInstance) {
       observations: past.get(row.id) ?? [],
       cohort: cohortSummary(subject, everyone),
       rentComparison: rentAgainstBuy({ ...subject, monthlyCarryingEur: analysis.monthlyTotal }, everyone),
-      bodenrichtwert: bodenrichtwertView(row),
-      districtSaleBand: districtSaleBandFor({
-        offer: row.offer,
-        propertyType: row.propertyType,
-        city: row.city,
-        district: row.district,
-        state: row.state,
-      }),
+      bodenrichtwert,
+      districtSaleBand,
     };
   }
 

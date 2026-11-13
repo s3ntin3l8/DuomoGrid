@@ -423,6 +423,55 @@ describe("listings", () => {
     });
     expect(rented.json().districtSaleBand).toBeNull();
     expect(rented.json().analysis.score).toBeNull();
+    expect(rented.json().analysis.verdict).toBe("rent");
+    expect(rented.json().analysis.flags.some((flag: { title: string; detail: string }) => /bodenrichtwert|district sale band/i.test(`${flag.title} ${flag.detail}`))).toBe(false);
     await app.close();
+  });
+
+  it("flags a published land value and a district sale band without changing the score", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response("bodenrichtwertszonenname = Untere Altstadt\nbodenrichtwert = 2.000\nstichtag = 01.01.2026\n", { status: 200 })) as typeof fetch;
+    const headers = { authorization: "Bearer test-token" };
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/listings",
+        headers,
+        payload: {
+          v: 1,
+          source: "immobilienscout24",
+          sourceUrl: "https://www.immobilienscout24.de/expose/794",
+          externalId: "794",
+          title: "Landshut apartment",
+          priceEur: 280000,
+          livingAreaM2: 80,
+          city: "Landshut",
+          state: "BY",
+          propertyType: "apartment",
+          listingKind: "sale",
+          latitude: "48.537",
+          longitude: "12.152",
+        },
+      });
+      expect(created.statusCode).toBe(201);
+      const score = created.json().analysis.score;
+      expect(created.json().analysis.flags.some((flag: { title: string }) => flag.title === "Inside the district sale band")).toBe(true);
+      expect(created.json().analysis.flags.some((flag: { title: string }) => /bodenrichtwert/i.test(flag.title))).toBe(false);
+
+      const detail = await app.inject({ method: "GET", url: `/listings/${created.json().id}`, headers });
+      expect(detail.json().bodenrichtwert).toMatchObject({ status: "published", eurPerM2: 2000 });
+      expect(detail.json().analysis.score).toBe(score);
+      expect(detail.json().analysis.subscores).toEqual(created.json().analysis.subscores);
+      const land = detail.json().analysis.flags.find((flag: { title: string }) => flag.title === "Bodenrichtwert is a land value");
+      expect(land.detail).toContain("2000 EUR/m2 of land");
+      expect(land.detail).toContain("not the same unit");
+      expect(detail.json().analysis.flags.some((flag: { title: string }) => flag.title === "Inside the district sale band")).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+      await app.close();
+    }
   });
 });
