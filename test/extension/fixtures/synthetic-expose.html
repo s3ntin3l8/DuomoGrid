@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ignored title</title>
+    <!-- keyValues wins for the purchase price. Later collectors carry a different price so a broken keyValues parse cannot hide behind them. -->
+    <script>
+      keyValues = {"obj_purchasePrice":"465.000","obj_marketingType":"PURCHASE","obj_immoType":"apartment","obj_scoutId":"999001"};
+    </script>
+    <!-- Regex collector. Living area and the coordinate are not in keyValues. -->
+    <script>
+      window.__fields = {"obj_livingSpace":92.5,"obj_purchasePrice":"1","geo_lat":48.537,"geo_lng":12.152};
+    </script>
+    <!-- JSON-LD. City, postal code, and state are not in the scripts above. Latitude here must lose to geo_lat. -->
+    <script type="application/ld+json">
+      {
+        "@type": "Offer",
+        "address": {
+          "addressLocality": "Landshut",
+          "postalCode": "84028",
+          "addressRegion": "Bayern",
+          "latitude": 1,
+          "longitude": 1
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <h1>Altstadt apartment</h1>
+    <main>
+      <div><span>Kaufpreis</span><span>3 €</span></div>
+      <div><span>Wohnfläche</span><span>11 m²</span></div>
+      <div><span>Grundstücksfläche</span><span>520 m²</span></div>
+    </main>
+  </body>
+</html>

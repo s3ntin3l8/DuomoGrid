@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      extension-tag:
+        description: "Existing release tag to re-upload the extension zip for, e.g. v0.1.5. Leave empty unless a release is missing its zip."
+        required: false
+        type: string
 
 permissions: {}
 
@@ -28,3 +33,28 @@ jobs:
       push-release: true
       release-tag: ${{ needs.release-please.outputs.tag_name }}
     secrets: inherit # pragma: allowlist secret
+
+  extension-zip:
+    needs: release-please
+    # A skipped release-please (dispatch from a non-default branch) must not
+    # block a retry. A failed release-please must not upload anything.
+    if: ${{ always() && !cancelled() && needs.release-please.result != 'failure' && (needs.release-please.outputs.release_created == 'true' || github.event.inputs.extension-tag != '') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name || github.event.inputs.extension-tag }}
+      - name: Pack the extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name || github.event.inputs.extension-tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#v}"
+          archive="duomogrid-extension-${version}.zip"
+          grep -q "\"version\": \"${version}\"" extension/manifest.json
+          (cd extension && zip -r "../${archive}" . -x '.*' -x '*/.*')
+          unzip -Z1 "${archive}" | grep -qx 'manifest.json'
+          gh release upload "${TAG_NAME}" "${archive}" --clobber
