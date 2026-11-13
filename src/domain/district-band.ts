@@ -104,11 +104,28 @@ export function parseDistrictBands(csv: string): DistrictRow[] {
   return rows;
 }
 
-function pick(rows: DistrictRow[], label: string, state: string | null): DistrictRow | null {
+function indexBands(rows: DistrictRow[]): Map<string, DistrictRow[]> {
+  const byKey = new Map<string, DistrictRow[]>();
+  for (const row of rows) {
+    const name = fold(row.name);
+    if (!name) continue;
+    const key = `${row.year}:${name}`;
+    const list = byKey.get(key);
+    if (list) list.push(row);
+    else byKey.set(key, [row]);
+  }
+  return byKey;
+}
+
+function latestYear(rows: DistrictRow[]): number {
+  return rows.reduce((max, row) => Math.max(max, row.year), 0);
+}
+
+function pick(index: Map<string, DistrictRow[]>, year: number, label: string, state: string | null): DistrictRow | null {
   const key = fold(label);
   if (!key) return null;
-  const named = rows.filter((row) => fold(row.name) === key);
-  if (named.length === 0) return null;
+  const named = index.get(`${year}:${key}`);
+  if (!named || named.length === 0) return null;
   if (state) {
     const land = LAND_NAME[state];
     const inState = land ? named.filter((row) => row.stateName === land) : [];
@@ -117,6 +134,9 @@ function pick(rows: DistrictRow[], label: string, state: string | null): Distric
   return named.length === 1 ? named[0] ?? null : null;
 }
 
+let cached: { rows: DistrictRow[]; index: Map<string, DistrictRow[]> } | null = null;
+const loggedMisses = new Set<string>();
+
 export function matchDistrictBand(
   rows: DistrictRow[],
   query: { offer: string; propertyType: string; city: string; district: string | null; state: string | null },
@@ -124,27 +144,29 @@ export function matchDistrictBand(
   if (query.offer !== "buy") return null;
   const kind = query.propertyType === "apartment" ? "apartment" : query.propertyType === "house" ? "house" : null;
   if (!kind) return null;
-  const year = rows.reduce((max, row) => Math.max(max, row.year), 0);
+  const year = latestYear(rows);
   if (!year) return null;
-  const current = rows.filter((row) => row.year === year);
-  const hit = pick(current, query.city, query.state) ?? (query.district ? pick(current, query.district, query.state) : null);
+  const index = cached && rows === cached.rows ? cached.index : indexBands(rows);
+  const hit = pick(index, year, query.city, query.state) ?? (query.district ? pick(index, year, query.district, query.state) : null);
   if (!hit) return null;
   const band = kind === "apartment" ? hit.apartment : hit.house;
   if (!band) return null;
   return { name: hit.name, stateName: hit.stateName, year: hit.year, band, kind };
 }
 
-let cached: DistrictRow[] | null = null;
-
 export function loadDistrictBands(filePath = DISTRICT_BAND_FILE): DistrictRow[] {
-  if (filePath === DISTRICT_BAND_FILE && cached) return cached;
+  if (filePath === DISTRICT_BAND_FILE && cached) return cached.rows;
   let rows: DistrictRow[];
   try {
     rows = parseDistrictBands(fs.readFileSync(filePath, "utf8"));
   } catch {
     rows = [];
+    if (!loggedMisses.has(filePath)) {
+      loggedMisses.add(filePath);
+      console.warn(`District sale band file is not readable: ${filePath}`);
+    }
   }
-  if (filePath === DISTRICT_BAND_FILE) cached = rows;
+  if (filePath === DISTRICT_BAND_FILE) cached = { rows, index: indexBands(rows) };
   return rows;
 }
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { loadDistrictBands, matchDistrictBand, parseDistrictBands } from "../../src/domain/district-band.js";
 
 const FIXTURE = `
@@ -47,6 +47,13 @@ describe("district sale band", () => {
       kind: "apartment",
     });
     expect(matchDistrictBand(published, { offer: "buy", propertyType: "house", city: "München", district: null, state: "BY" })?.band).toBe("3500 und mehr");
-    expect(loadDistrictBands("/tmp/duomo-no-such-akoga.csv")).toEqual([]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(loadDistrictBands("/tmp/duomo-no-such-akoga.csv")).toEqual([]);
+      expect(loadDistrictBands("/tmp/duomo-no-such-akoga.csv")).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
