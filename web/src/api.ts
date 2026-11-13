@@ -79,7 +79,11 @@ export type DeskListing = {
     /** Only on the detail route. The list returns null and []. */
     description: { object: string | null; furnishing: string | null; location: string | null; other: string | null } | null;
     details: { label: string; value: string }[];
+    /** Hotlinked from the portal CDN. Only on the detail route; the list returns []. */
+    images: { url: string; caption: string | null; kind: "photo" | "floorplan" }[];
   };
+  /** The first photo, on the list as well, for the row thumbnail. */
+  coverUrl: string | null;
   /** Null on the list. Present once the detail route has answered. */
   descriptionFindings: {
     items: { key: string; label: string; snippet: string; year?: number; amountEur?: number }[];

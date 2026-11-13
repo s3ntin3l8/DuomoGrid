@@ -1,5 +1,6 @@
 import { parseState } from "./reference.js";
-import type { DetailPair, EnergyCert, ListingDescription, ListingInput, Offer, ParkingType, PropertyType, Source } from "./types.js";
+import { IMAGE_HOSTS } from "./types.js";
+import type { DetailPair, EnergyCert, ImageRef, ListingDescription, ListingInput, Offer, ParkingType, PropertyType, Source } from "./types.js";
 
 /** Keys added after the first extension release. A body that lacks one keeps the stored value on a re-save. */
 export const EXTRA_KEYS = [
@@ -18,6 +19,7 @@ export const EXTRA_KEYS = [
   "portalMarketHighEurPerM2",
   "description",
   "details",
+  "images",
 ] as const;
 export type ExtraKey = (typeof EXTRA_KEYS)[number];
 
@@ -83,6 +85,34 @@ function detailsOf(value: unknown): DetailPair[] {
 
 /** Portal placeholders for "not stated". Same pattern as in extension/extract.js. */
 const ABSENT = /^(no[_ ]information|keine angabe|n\/a)$/i;
+
+const IMAGES_MAX = 40;
+
+/** https only, and only from the two portal CDNs. Anything else is dropped, not rewritten. */
+function imagesOf(value: unknown): ImageRef[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const images: ImageRef[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const body = item as Record<string, unknown>;
+    let url: URL;
+    try {
+      url = new URL(String(body.url ?? ""));
+    } catch {
+      continue;
+    }
+    if (url.protocol !== "https:" || !(IMAGE_HOSTS as readonly string[]).includes(url.hostname)) continue;
+    if (url.username || url.password) continue;
+    const href = url.toString();
+    if (seen.has(href)) continue;
+    seen.add(href);
+    const caption = String(body.caption ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    images.push({ url: href, caption: caption || null, kind: body.kind === "floorplan" ? "floorplan" : "photo" });
+    if (images.length >= IMAGES_MAX) break;
+  }
+  return images;
+}
 
 /** Known fuels become one canonical label so analysis can match on it. Anything else stays as published. */
 export function energySourceOf(value: unknown): string | null {
@@ -313,6 +343,7 @@ export function parseIngest(input: unknown): IngestResult {
       portalMarketHighEurPerM2: positiveNumber(body.portalMarketHighEurPerM2),
       description: descriptionOf(body.description),
       details: detailsOf(body.details),
+      images: imagesOf(body.images),
     },
     provided,
   };

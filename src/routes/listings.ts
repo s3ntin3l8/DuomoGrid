@@ -9,7 +9,7 @@ import { exactPoint, parseIngest, type ExtraKey } from "../domain/ingest.js";
 import { districtSaleBandFor } from "../domain/district-band.js";
 import { fetchBodenrichtwert, type Bodenrichtwert } from "../domain/bodenrichtwert.js";
 import { DEFAULT_ASSUMPTIONS, STATES } from "../domain/types.js";
-import type { Assumptions, DetailPair, ListingDescription, ListingInput, Offer, ParkingType, PropertyType, Source } from "../domain/types.js";
+import type { Assumptions, DetailPair, ImageRef, ListingDescription, ListingInput, Offer, ParkingType, PropertyType, Source } from "../domain/types.js";
 import { listings, observations, settings } from "../db/schema.js";
 
 type ListingRow = typeof listings.$inferSelect;
@@ -86,6 +86,7 @@ function asInput(row: ListingRow, priceEur: number | null): ListingInput {
     portalMarketHighEurPerM2: row.portalMarketHighEurPerM2,
     description: jsonOr<ListingDescription | null>(row.descriptionJson, null),
     details: jsonOr<DetailPair[]>(row.detailsJson, []),
+    images: jsonOr<ImageRef[]>(row.imagesJson, []),
   };
 }
 
@@ -267,7 +268,7 @@ function findingsFor(stored: string | null, description: ListingDescription | nu
 /** The observation copy of a body keeps what priced the listing, not the long text. */
 function withoutLongText(body: unknown): unknown {
   if (!body || typeof body !== "object" || Array.isArray(body)) return body ?? {};
-  const { description: _description, details: _details, ...rest } = body as Record<string, unknown>;
+  const { description: _description, details: _details, images: _images, ...rest } = body as Record<string, unknown>;
   return rest;
 }
 
@@ -293,6 +294,7 @@ function extras(listing: ListingInput, provided: ReadonlySet<ExtraKey>, existing
     portalMarketHighEurPerM2: pick("portalMarketHighEurPerM2", listing.portalMarketHighEurPerM2, existing?.portalMarketHighEurPerM2 ?? null),
     descriptionJson: pick("description", listing.description ? JSON.stringify(listing.description) : null, existing?.descriptionJson ?? null),
     detailsJson: pick("details", listing.details.length ? JSON.stringify(listing.details) : null, existing?.detailsJson ?? null),
+    imagesJson: pick("images", listing.images.length ? JSON.stringify(listing.images) : null, existing?.imagesJson ?? null),
   };
 }
 
@@ -359,7 +361,9 @@ export async function listingsRoute(app: FastifyInstance) {
       status: row.status,
       notes: row.notes,
       updatedAt: row.updatedAt,
-      listing: full ? input : { ...input, description: null, details: [] },
+      listing: full ? input : { ...input, description: null, details: [], images: [] },
+      // The list shows a thumbnail, so the first photo travels with every row. The rest stays on the detail route.
+      coverUrl: input.images.find((image) => image.kind === "photo")?.url ?? null,
       descriptionFindings: full ? findings : null,
       analysis,
       observations: past.get(row.id) ?? [],

@@ -211,6 +211,7 @@ export function App() {
                 onChange={() => togglePick(row.id)}
               />
               <button type="button" className={row.id === active?.id ? "item on" : "item"} onClick={() => open(row.id)}>
+                {row.coverUrl ? <img className="thumb" src={row.coverUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : null}
                 <strong>{row.listing.title}</strong>
                 <span>{row.analysis.score ?? (row.listing.offer === "rent" ? "Rent" : "—")}</span>
                 <small>

@@ -190,3 +190,53 @@ describe("parseIngest details", () => {
     expect(energySourceOf("")).toBeNull();
   });
 });
+
+describe("parseIngest images", () => {
+  const ok = "https://pictures.immobilienscout24.de/listings/a-1.jpeg/ORIG/resize/1106x830%3E/format/webp/quality/73";
+
+  it("keeps https images from the two portal CDNs, split into photos and floor plans", () => {
+    const parsed = parseIngest({
+      title: "Pictures",
+      images: [
+        { url: ok, caption: " Titelbild ", kind: "photo" },
+        { url: "https://mms.immowelt.de/1/0/2/c/x.jpg", kind: "floorplan", caption: "1. OG" },
+        { url: ok, caption: "duplicate" },
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing.images).toEqual([
+      { url: ok, caption: "Titelbild", kind: "photo" },
+      { url: "https://mms.immowelt.de/1/0/2/c/x.jpg", caption: "1. OG", kind: "floorplan" },
+    ]);
+    expect(parsed.provided.has("images")).toBe(true);
+  });
+
+  it("drops every other host, scheme and shape, without rewriting any of them", () => {
+    const parsed = parseIngest({
+      title: "Bad pictures",
+      images: [
+        { url: "http://mms.immowelt.de/x.jpg" },
+        { url: "https://evil.example/x.jpg" },
+        { url: "https://mms.immowelt.de.evil.example/x.jpg" },
+        { url: "https://user:pass@mms.immowelt.de/x.jpg" },
+        { url: "javascript:alert(1)" },
+        { url: "data:image/png;base64,AAAA" },
+        { url: "not a url" },
+        "https://mms.immowelt.de/x.jpg",
+        null,
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing.images).toEqual([]);
+  });
+
+  it("caps the list at 40", () => {
+    const images = Array.from({ length: 60 }, (_, index) => ({ url: `https://mms.immowelt.de/${index}.jpg` }));
+    const parsed = parseIngest({ title: "Many", images });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing.images).toHaveLength(40);
+  });
+});

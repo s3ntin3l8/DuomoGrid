@@ -1020,4 +1020,66 @@ describe("listings", () => {
     expect(stored.json().listing.yearRefurbished).toBe(2020);
     await app.close();
   });
+
+  it("returns images on the detail route only, gives the list a cover, and keeps them when a save lacks the key", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const base = {
+      source: "immowelt",
+      sourceUrl: "https://www.immowelt.de/expose/cccc",
+      externalId: "cccc",
+      title: "Pictures",
+      priceEur: 300000,
+      livingAreaM2: 90,
+      city: "Hepberg",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+    };
+    const plan = { url: "https://mms.immowelt.de/f/1.jpg", caption: "1. OG", kind: "floorplan" };
+    const photo = { url: "https://mms.immowelt.de/p/1.jpg", caption: "Titelbild", kind: "photo" };
+    const created = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, images: [plan, photo, { url: "https://evil.example/x.jpg" }] } });
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id as string;
+    expect(created.json().listing.images).toEqual([]);
+    expect(created.json().coverUrl).toBe(photo.url);
+
+    type Row = { id: string; coverUrl: string | null; listing: { images: unknown[] } };
+    const listed = ((await app.inject({ method: "GET", url: "/listings", headers })).json() as Row[]).find((item) => item.id === id) as Row;
+    expect(listed.listing.images).toEqual([]);
+    expect(listed.coverUrl).toBe(photo.url);
+
+    const detail = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+    expect(detail.json().listing.images).toEqual([
+      { url: plan.url, caption: "1. OG", kind: "floorplan" },
+      { url: photo.url, caption: "Titelbild", kind: "photo" },
+    ]);
+
+    const observed = app.db.select().from(observations).where(eq(observations.listingId, id)).all()[0];
+    expect(observed?.rawJson).not.toContain("mms.immowelt.de");
+
+    // A floor plan alone is not a cover.
+    const planOnly = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, images: [plan] } });
+    expect(planOnly.json().coverUrl).toBeNull();
+
+    // An older extension re-saves without the key: nothing is blanked. An explicit empty list does clear it.
+    await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, images: [plan, photo] } });
+    await app.inject({ method: "POST", url: "/listings", headers, payload: base });
+    expect((await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json().listing.images).toHaveLength(2);
+    await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, images: [] } });
+    expect((await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json().listing.images).toEqual([]);
+    await app.close();
+  });
+
+  it("lets the desk load images from the two portal CDNs and from nowhere else", async () => {
+    const app = await buildApp();
+    const response = await app.inject({ method: "GET", url: "/health" });
+    const policy = String(response.headers["content-security-policy"]);
+    const imgSrc = policy.split(";").map((part) => part.trim()).find((part) => part.startsWith("img-src")) ?? "";
+    expect(imgSrc).toContain("https://pictures.immobilienscout24.de");
+    expect(imgSrc).toContain("https://mms.immowelt.de");
+    expect(imgSrc).not.toContain("*");
+    await app.close();
+  });
 });

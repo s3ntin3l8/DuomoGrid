@@ -57,6 +57,7 @@ function listing(partial: Partial<ListingInput> & Pick<ListingInput, "title" | "
     portalMarketHighEurPerM2: null,
     description: null,
     details: [],
+    images: [],
     ...partial,
   };
 }

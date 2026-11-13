@@ -123,6 +123,7 @@ describe("extract helpers", () => {
     const bare = duomoBuildListing([{ description: "A short meta teaser from a decoy record." }], page).listing as Record<string, unknown>;
     expect("description" in bare).toBe(false);
     expect("details" in bare).toBe(false);
+    expect("images" in bare).toBe(false);
     const full = duomoBuildListing([{ descriptionobject: "The real text." }], { ...page, details: [{ label: "Heizungsart", value: "Gas" }] }).listing as Record<string, unknown>;
     expect(full.description).toMatchObject({ object: "The real text." });
     expect(full.details).toEqual([{ label: "Heizungsart", value: "Gas" }]);

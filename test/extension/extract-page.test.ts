@@ -136,6 +136,14 @@ describe("extract a saved exposé document", () => {
     expect(description.furnishing).toContain("Fußbodenheizung");
     expect(description.location).toBe("Ruhige Lage.");
     expect(description.other).toBe("Provision siehe Expose.");
+    // The gallery marks plans; the documents list repeats one of them under another size and adds one the gallery lacks.
+    const images = listing.images as { url: string; caption: string | null; kind: string }[];
+    expect(images.map((image) => [image.kind, image.caption])).toEqual([
+      ["photo", "Titelbild"],
+      ["floorplan", "Grundriss EG"],
+      ["floorplan", "Freifläche"],
+    ]);
+    expect(images[0]?.url).toContain("1106x830");
     const details = listing.details as { label: string; value: string }[];
     expect(details).toContainEqual({ label: "Garage/ Stellplatz-Kaufpreis", value: "10.000 €" });
     expect(details).toContainEqual({ label: "Energieausweistyp", value: "Bedarfsausweis" });
@@ -195,6 +203,10 @@ describe("extract a saved exposé document", () => {
     expect(description.object).toBe("Helle Wohnung.\n\nDie Wohnung wurde ca. im Jahr 2015 renoviert. Nicht vermietet.");
     expect(description.location).toBe("Ruhige Lage am Ortsrand.");
     expect(description.furnishing).toContain("Pkw-Stellplatz");
+    // Photos and the floor plan are separated. The extension keeps what the page lists; the server filters hosts.
+    const images = listing.images as { url: string; caption: string | null; kind: string }[];
+    expect(images.filter((image) => image.kind === "floorplan").map((image) => image.caption)).toEqual(["1. Obergeschoss"]);
+    expect(images.filter((image) => image.kind === "photo").map((image) => image.caption)).toEqual(["Titelbild", "Küche", "Elsewhere"]);
     const details = listing.details as { label: string; value: string }[];
     expect(details).toContainEqual({ label: "Außenbereich", value: "Außen-Stellplatz" });
     expect(details).toContainEqual({ label: "Energieträger", value: "Pellets" });

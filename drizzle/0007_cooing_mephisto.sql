@@ -1,0 +1,1 @@
+ALTER TABLE `listings` ADD `images_json` text;
