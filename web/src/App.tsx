@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   loadAssumptions,
@@ -14,8 +14,9 @@ import {
 import { AssumptionsForm } from "./Assumptions";
 import { Compare } from "./Compare";
 import { Detail } from "./Detail";
-import { ListingMap } from "./Map";
 import { eur, statusLabel } from "./format";
+
+const ListingMap = lazy(() => import("./Map").then((mod) => ({ default: mod.ListingMap })));
 
 type OfferFilter = "all" | "buy" | "rent";
 type Mode = "detail" | "compare" | "assumptions" | "map";
@@ -209,18 +210,20 @@ export function App() {
         ) : null}
         {mode === "compare" && compared.length >= 2 ? <Compare rows={compared} /> : null}
         {mode === "map" ? (
-          <ListingMap
-            rows={visible}
-            onOpen={open}
-            onMove={async (id, latitude, longitude) => {
-              try {
-                await mutate(id, { latitude, longitude });
-              } catch (reason: unknown) {
-                setError(reason instanceof Error ? reason.message : "Could not move the pin.");
-                throw reason;
-              }
-            }}
-          />
+          <Suspense fallback={<p className="meta">Loading the map…</p>}>
+            <ListingMap
+              rows={visible}
+              onOpen={open}
+              onMove={async (id, latitude, longitude) => {
+                try {
+                  await mutate(id, { latitude, longitude });
+                } catch (reason: unknown) {
+                  setError(reason instanceof Error ? reason.message : "Could not move the pin.");
+                  throw reason;
+                }
+              }}
+            />
+          </Suspense>
         ) : null}
         {mode === "detail" && active ? (
           <Detail

@@ -5,8 +5,18 @@ import rateLimit from "@fastify/rate-limit";
 import cors from "@fastify/cors";
 
 export const securityPlugin = fp(async (app: FastifyInstance) => {
-  // Security headers (CSP, HSTS, etc.).
-  await app.register(helmet);
+  // The desk map loads its basemap from OpenFreeMap. Helmet's default-src
+  // 'self' would block the style, sprites and tiles, and the MapLibre worker
+  // is served from this origin (or a blob URL).
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        "connect-src": ["'self'", "https://tiles.openfreemap.org"],
+        "img-src": ["'self'", "data:", "blob:", "https://tiles.openfreemap.org"],
+        "worker-src": ["'self'", "blob:"],
+      },
+    },
+  });
 
   // Basic abuse protection. Tune via RATE_LIMIT_MAX / RATE_LIMIT_WINDOW.
   await app.register(rateLimit, {

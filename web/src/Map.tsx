@@ -1,7 +1,10 @@
 import * as maplibregl from "maplibre-gl";
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DeskListing } from "./api";
+
+maplibregl.setWorkerUrl(workerUrl);
 
 const STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
@@ -25,6 +28,7 @@ export function ListingMap({
   const onOpenRef = useRef(onOpen);
   const onMoveRef = useRef(onMove);
   const rowsRef = useRef(rows);
+  const [unavailable, setUnavailable] = useState("");
   onOpenRef.current = onOpen;
   onMoveRef.current = onMove;
   rowsRef.current = rows;
@@ -39,9 +43,15 @@ export function ListingMap({
       zoom: 6,
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    map.on("error", () => undefined);
+    let gone = false;
+    map.on("error", (event) => {
+      if (gone || ("sourceId" in event && event.sourceId)) return;
+      const message = event.error instanceof Error ? event.error.message : "The map could not load.";
+      setUnavailable(message);
+    });
     mapRef.current = map;
     return () => {
+      gone = true;
       markers.current.forEach((marker) => marker.remove());
       markers.current.clear();
       map.remove();
@@ -120,6 +130,8 @@ export function ListingMap({
   return (
     <section className="map-panel">
       <p className="meta">Drag a pin to correct the building. Only stored points are shown.</p>
+      <p className="meta">Basemap tiles are requested from OpenFreeMap for the area in view. The listings themselves stay on this machine.</p>
+      {unavailable ? <p className="error">Map unavailable. {unavailable}</p> : null}
       <div ref={host} className="map-canvas" />
       {missing > 0 ? (
         <p className="meta">
