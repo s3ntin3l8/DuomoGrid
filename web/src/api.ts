@@ -40,7 +40,7 @@ export type DeskListing = {
     street: string | null;
     latitude: number | null;
     longitude: number | null;
-    locationPrecision: "exact" | null;
+    locationPrecision: "exact" | "approximate" | null;
     source: string;
     sourceUrl: string;
     propertyType: string;

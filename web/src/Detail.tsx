@@ -59,7 +59,7 @@ export function Detail({
           {[
             listing.street,
             listing.latitude != null && listing.longitude != null
-              ? `${listing.latitude.toFixed(5)}, ${listing.longitude.toFixed(5)}`
+              ? `${listing.latitude.toFixed(5)}, ${listing.longitude.toFixed(5)}${listing.locationPrecision === "approximate" ? " (approximate)" : ""}`
               : null,
           ].filter(Boolean).join(" · ")}
           {listing.latitude != null && listing.longitude != null ? (
@@ -221,6 +221,7 @@ function landDigits(value: number | null): number {
 
 function LandValue({ row, pending, miss }: { row: DeskListing; pending: boolean; miss: boolean }) {
   const land = row.bodenrichtwert;
+  const approximate = row.listing.locationPrecision === "approximate";
   if (land?.status === "published" || land?.status === "unpublished") {
     return (
       <section className="block">
@@ -239,6 +240,11 @@ function LandValue({ row, pending, miss }: { row: DeskListing; pending: boolean;
             : "Published Bavarian standard land value for private viewing. "}
           Not the official paid Auskunft.
         </p>
+        {approximate ? (
+          <p className="meta">
+            Approximate location: the portal does not publish the address, so this zone may not be the one the building is in. Drag the pin on the map to the building to look it up again.
+          </p>
+        ) : null}
       </section>
     );
   }

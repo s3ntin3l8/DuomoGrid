@@ -118,25 +118,27 @@ function landValueFlag(
   if (!buy || price == null || price <= 0 || !land || land.status !== "published" || !(land.eurPerM2 > 0)) return null;
   const eur = land.eurPerM2;
   const zone = land.zone ? ` (${land.zone})` : "";
+  const approximate = listing.locationPrecision === "approximate";
+  const caveat = approximate ? " The listing's location is approximate, so the zone may not be the one this building is in." : "";
   const plot = listing.plotAreaM2;
   if (plot != null && plot > 0) {
     const total = eur * plot;
     const living = pricePerLivingM2 != null ? `, ${figure(pricePerLivingM2)} EUR/m2 of living area` : "";
-    const detail = `The Bodenrichtwert is ${figure(eur)} EUR/m2 of land${zone}, about ${figure(roundEuro(total))} EUR for this ${figure(plot)} m2 plot. The asking price is ${figure(roundEuro(price))} EUR${living}. This compares the two totals in EUR. It does not compare the land value with the price per m2 of living area.`;
-    if (price < total) return { severity: "good", title: "Asking price is under the plot's land value", detail };
+    const detail = `The Bodenrichtwert is ${figure(eur)} EUR/m2 of land${zone}, about ${figure(roundEuro(total))} EUR for this ${figure(plot)} m2 plot. The asking price is ${figure(roundEuro(price))} EUR${living}. This compares the two totals in EUR. It does not compare the land value with the price per m2 of living area.${caveat}`;
+    if (price < total && !approximate) return { severity: "good", title: "Asking price is under the plot's land value", detail };
     return { severity: "info", title: "Asking price against the Bodenrichtwert", detail };
   }
   if (pricePerLivingM2 == null) {
     return {
       severity: "info",
       title: "Bodenrichtwert is a land value",
-      detail: `The Bodenrichtwert is ${figure(eur)} EUR/m2 of land${zone}. The asking price is ${figure(roundEuro(price))} EUR. There is no plot area, so this is not a comparison of two totals.`,
+      detail: `The Bodenrichtwert is ${figure(eur)} EUR/m2 of land${zone}. The asking price is ${figure(roundEuro(price))} EUR. There is no plot area, so this is not a comparison of two totals.${caveat}`,
     };
   }
   return {
     severity: "info",
     title: "Bodenrichtwert is a land value",
-    detail: `The Bodenrichtwert is ${figure(eur)} EUR/m2 of land${zone}. The asking price is ${figure(pricePerLivingM2)} EUR/m2 of living area. These are not the same unit.`,
+    detail: `The Bodenrichtwert is ${figure(eur)} EUR/m2 of land${zone}. The asking price is ${figure(pricePerLivingM2)} EUR/m2 of living area. These are not the same unit.${caveat}`,
   };
 }
 

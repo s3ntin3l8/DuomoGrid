@@ -48,9 +48,13 @@
     return Number.isFinite(n) ? n : null;
   }
 
+  /** Portal placeholders for "not stated". They must read as missing, never as a street or a condition. */
+  const ABSENT = /^(no[_ ]information|keine angabe|n\/a)$/i;
+
   function unwrap(value) {
     if (value == null) return null;
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+    if (typeof value === "string") return ABSENT.test(value.trim()) ? null : value;
+    if (typeof value === "number" || typeof value === "boolean") return value;
     if (Array.isArray(value)) {
       const parts = value.map(unwrap).filter((part) => part != null && part !== "");
       return parts.length ? parts.join(", ") : null;
@@ -93,7 +97,8 @@
     return blob;
   }
 
-  function assignedObject(source, name) {
+  /** The balanced `{ … }` text after `name`, or null. Not parsed: IS24 also writes JS literals with `undefined`. */
+  function assignedSource(source, name) {
     const idx = source.indexOf(name);
     if (idx < 0) return null;
     const start = source.indexOf("{", idx);
@@ -118,16 +123,20 @@
       if (char === "{") depth += 1;
       else if (char === "}") {
         depth -= 1;
-        if (depth === 0) {
-          try {
-            return JSON.parse(source.slice(start, i + 1));
-          } catch {
-            return null;
-          }
-        }
+        if (depth === 0) return source.slice(start, i + 1);
       }
     }
     return null;
+  }
+
+  function assignedObject(source, name) {
+    const text = assignedSource(source, name);
+    if (text == null) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
   }
 
   function regexFields(source) {
@@ -227,6 +236,179 @@
         if (value) record[field] = value;
       }
     }
+    return record;
+  }
+
+
+  /** Index of the closing quote of the JSON/JS string literal that opens at `from`, or -1. */
+  function literalEnd(source, from) {
+    let escaped = false;
+    for (let i = from + 1; i < source.length; i += 1) {
+      const char = source[i];
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') return i;
+    }
+    return -1;
+  }
+
+  function at(node, path) {
+    let current = node;
+    for (const key of path) {
+      if (current == null || typeof current !== "object") return undefined;
+      current = current[key];
+    }
+    return current;
+  }
+
+  function round5(n) {
+    return Math.round(n * 1e5) / 1e5;
+  }
+
+  /** Area-weighted centre of a ring of [lng, lat] pairs. Falls back to the mean of the vertices. */
+  function ringCentre(ring) {
+    const pts = (ring || []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    if (pts.length === 0) return null;
+    const [ox, oy] = pts[0];
+    let area = 0;
+    let cx = 0;
+    let cy = 0;
+    for (let i = 0; i < pts.length; i += 1) {
+      const [x0, y0] = [pts[i][0] - ox, pts[i][1] - oy];
+      const [x1, y1] = [pts[(i + 1) % pts.length][0] - ox, pts[(i + 1) % pts.length][1] - oy];
+      const cross = x0 * y1 - x1 * y0;
+      area += cross;
+      cx += (x0 + x1) * cross;
+      cy += (y0 + y1) * cross;
+    }
+    if (Math.abs(area) < 1e-14) {
+      const mean = pts.reduce((sum, p) => [sum[0] + p[0], sum[1] + p[1]], [0, 0]);
+      return { longitude: round5(mean[0] / pts.length), latitude: round5(mean[1] / pts.length) };
+    }
+    return { longitude: round5(ox + cx / (3 * area)), latitude: round5(oy + cy / (3 * area)) };
+  }
+
+  /** GeoJSON geometry to one point. A Point is the place itself; a polygon is only the area it is in. */
+  function geometryPoint(geometry) {
+    if (!geometry || typeof geometry !== "object") return null;
+    const coordinates = geometry.coordinates;
+    if (geometry.type === "Point" && Array.isArray(coordinates)) {
+      return { longitude: round5(coordinates[0]), latitude: round5(coordinates[1]), point: true };
+    }
+    const ring = geometry.type === "MultiPolygon" ? at(coordinates, [0, 0]) : geometry.type === "Polygon" ? at(coordinates, [0]) : null;
+    const centre = ringCentre(ring);
+    return centre ? { ...centre, point: false } : null;
+  }
+
+  /** Immowelt ships the whole exposé as a JSON string inside JSON.parse("…") in a script tag. */
+  function immoweltClassified(doc) {
+    const scripts = doc.querySelectorAll ? Array.from(doc.querySelectorAll("script")) : [];
+    const marker = /__UFRN_LIFECYCLE_SERVERREQUEST__"\]\s*=\s*JSON\.parse\(\s*(?=")/;
+    for (const script of scripts) {
+      const text = script.textContent || "";
+      const match = marker.exec(text);
+      if (!match) continue;
+      const open = match.index + match[0].length;
+      const close = literalEnd(text, open);
+      if (close < 0) continue;
+      try {
+        const root = JSON.parse(JSON.parse(text.slice(open, close + 1)));
+        for (const value of Object.values(root || {})) {
+          if (value && typeof value === "object" && value.data && value.data.classified) return value.data.classified;
+        }
+      } catch {
+        /* a changed page layout is not an error, the other collectors still run */
+      }
+    }
+    return null;
+  }
+
+  function immoweltRecord(c) {
+    const record = {};
+    const sale = String(at(c, ["rawData", "distributionType"]) ?? "").toUpperCase() !== "RENT";
+    const track = at(c, ["tracking", "av_items", 0]) || {};
+    const cfg = at(c, ["advertising", "tracking_config"]) || {};
+    const sections = c.sections || {};
+    const amount = (value) => {
+      const n = Number(value);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    const price = amount(track.price) ?? amount(at(sections, ["mortgage", "price"]));
+    if (sale) record.purchasePrice = price;
+    else record.baseRent = price;
+    record.livingSpace = amount(cfg.Wohnflaeche);
+    record.noRooms = amount(cfg.Raeume);
+    record.immotype = at(c, ["rawData", "propertyType"]);
+    record.marketingType = at(c, ["rawData", "distributionType"]);
+    record.externalId = at(c, ["metadata", "legacyId"]);
+    record.listingTitle = at(sections, ["description", "headline"]) ?? at(sections, ["mainDescription", "headline"]);
+    record.description = at(sections, ["mainDescription", "description"]) ?? at(sections, ["description", "description"]);
+    const address = at(sections, ["location", "address"]) || {};
+    record.city = address.city;
+    record.postalCode = address.zipCode;
+    record.district = address.district;
+    record.state = cfg.Bundesland;
+    const geometry = geometryPoint(at(sections, ["location", "geometry"]));
+    if (geometry) {
+      record.latitude = geometry.latitude;
+      record.longitude = geometry.longitude;
+      record.locationPrecision = geometry.point && at(sections, ["location", "isAddressPublished"]) === true ? "exact" : "approximate";
+    }
+    record.commissionText = at(sections, ["price", "base", "commissionFee", "value"]);
+    record.condition = track.building_state;
+    const energy = at(sections, ["energy"]) || {};
+    for (const feature of energy.features || []) {
+      if (feature.type === "yearOfConstruction") record.yearConstructed = feature.value;
+      if (feature.type === "heatingSystem") record.heating = feature.value;
+    }
+    const cert = at(energy, ["certificates", 0]) || {};
+    const scale = at(cert, ["scales", 0]) || {};
+    record.energyEfficiencyClass = at(scale, ["efficiencyClass", "rating"]);
+    record.thermalCharacteristic = at(scale, ["values", 0, "value"]);
+    for (const feature of cert.features || []) {
+      if (feature.type === "basedOn") record.buildingEnergyRatingType = feature.value;
+    }
+    const elements = [];
+    for (const category of at(sections, ["features", "details", "categories"]) || []) {
+      for (const element of category.elements || []) {
+        if (element.icon === "floors") record.floor = element.value;
+        else if (element.value) elements.push(String(element.value));
+      }
+    }
+    if (elements.length) record.features = elements.join(" · ");
+    return record;
+  }
+
+  /** IS24 keeps the point, the town and the gallery in JS literals next to keyValues. Read by path: bbox corners share the key names. */
+  function is24Record(blob) {
+    const record = {};
+    const map = assignedObject(blob, '"exposeMap"');
+    const location = map && map.location;
+    if (location && location.coordinateAvailable !== false) {
+      const latitude = parseCoordinate(location.latitude);
+      const longitude = parseCoordinate(location.longitude);
+      if (latitude != null && longitude != null) {
+        record.latitude = latitude;
+        record.longitude = longitude;
+        record.locationPrecision = location.showFullAddress === true ? "exact" : "approximate";
+      }
+    }
+    // `locationAddress: null` must not make the scan pick up whatever object comes next.
+    const addressAt = blob.indexOf("locationAddress");
+    const address = addressAt >= 0 && /^locationAddress"?\s*:\s*\{/.test(blob.slice(addressAt, addressAt + 40))
+      ? assignedSource(blob, "locationAddress")
+      : null;
+    if (address) {
+      const text = (name) => {
+        const match = address.match(new RegExp(`\\b${name}:\\s*"([^"]{0,120})"`));
+        return match ? match[1] : null;
+      };
+      record.city = text("city");
+      record.street = text("street");
+      record.houseNumber = text("houseNumber");
+    }
+    const content = assignedObject(blob, '"exposeContent"');
+    if (content && content.objectDescription) record.description = content.objectDescription;
     return record;
   }
 
@@ -356,7 +538,7 @@
     let propertyType = "other";
     if (blob.includes("wohn") || blob.includes("apartment")) propertyType = "apartment";
     else if (blob.includes("zinshaus") || blob.includes("multi")) propertyType = "multi";
-    else if (blob.includes("grund") || blob.includes("plot")) propertyType = "land";
+    else if (blob.includes("grund") || blob.includes("plot") || /\bland\b/.test(blob)) propertyType = "land";
     else if (blob.includes("haus") || blob.includes("house")) propertyType = "house";
     if (propertyType === "other") {
       if (plot != null && plot >= 150) propertyType = "house";
@@ -365,19 +547,22 @@
     const firing = pick(records, ["objfiringtypes", "firingtypes"]);
     const heatingType = pick(records, ["objheatingtype", "heatingtype", "heizungsart"]);
     const heatingFree = pick(records, ["heating", "heizung", "energietraeger"]);
+    // obj_courtage is a bare y/n flag on the current IS24 layout and could be text on an older one.
+    const courtageRaw = pick(records, ["objcourtage"]);
+    const courtageIsFlag = /^(y|n|yes|no|ja|nein|true|false)$/i.test(String(courtageRaw ?? "").trim());
     const provision = parseProvision(
-      pick(records, ["objcourtage", "courtage", "provisiontext", "kauferprovision", "maklerprovision"]),
-      pick(records, ["objhascourtage", "hascourtage"]),
+      pick(records, ["courtage", "provisiontext", "commissiontext", "kauferprovision", "maklerprovision"]) ?? (courtageIsFlag ? null : courtageRaw),
+      pick(records, ["objhascourtage", "hascourtage"]) ?? (courtageIsFlag ? courtageRaw : null),
     );
     const service = parseDeNumber(pick(records, ["objservicecharge", "servicecharge"]));
     const hausgeld = parseDeNumber(pick(records, ["hausgeld", "hausgeldeur"])) ?? (listingKind === "sale" ? service : null);
     const floor = pick(records, ["objfloor", "floor", "etage"]);
     const floors = pick(records, ["objnumberoffloors", "numberoffloors"]);
     const floorText = floor ? (floors ? `${floor} von ${floors}` : String(floor)) : null;
-    const description = String(pick(records, ["objdescription", "description", "snippet"]) ?? page.text ?? "");
+    const description = String(pick(records, ["objdescription", "description", "snippet"]) ?? page.text ?? "").replace(/\s+/g, " ").trim();
     const leasehold = yes(pick(records, ["objleasehold", "leasehold", "erbpacht"])) || /\b(erbpacht|erbbaurecht)\b/i.test(description);
     const monument = yes(pick(records, ["objlisted", "listed", "denkmal", "monument"])) || /denkmalschutz/i.test(description);
-    const rentedOut = yes(pick(records, ["objrented", "rented", "vermietet"])) || /\bvermietet\b/i.test(description);
+    const rentedOut = yes(pick(records, ["objrented", "rented", "vermietet"])) || /(?<!nicht\s)\bvermietet\b/i.test(description);
     const features = [];
     const featureMap = [
       ["objbalcony", "Balcony"],
@@ -397,13 +582,22 @@
         if (item && !features.includes(item)) features.push(item);
       }
     }
-    const titleSource = page.title || String(pick(records, ["name", "title", "objtitle"]) ?? "");
+    const titleSource = String(pick(records, ["listingtitle"]) ?? "") || page.title || String(pick(records, ["name", "title", "objtitle"]) ?? "");
     const title = titleSource
       .replace(/\s+/g, " ")
       .replace(/\s+bei ImmobilienScout24.*$/i, "")
       .replace(/\s+\|\s+Immowelt.*$/i, "")
       .trim()
       .slice(0, 180) || "Listing";
+    let city = String(pick(records, ["objregio2", "addresslocality", "city", "stadt"]) ?? "").trim();
+    let district = String(pick(records, ["objregio3", "district"]) ?? "").trim() || null;
+    // IS24 puts the Kreis in regio2 for small towns and the town in regio3.
+    if ((/kreis(?![a-zäöü])/i.test(city) || /^lkr\b/i.test(city)) && district) {
+      city = district;
+      district = null;
+    }
+    if (district && district.toLowerCase() === city.toLowerCase()) district = null;
+    const precision = pick(records, ["locationprecision"]) === "approximate" ? "approximate" : "exact";
     const latitude = parseCoordinate(pick(records, ["latitude", "geolat", "objlat", "wgs84latitude"]));
     const longitude = parseCoordinate(pick(records, ["longitude", "geolong", "geolng", "objlong", "objlng", "wgs84longitude"]));
     const hasPoint = latitude != null && longitude != null
@@ -430,20 +624,21 @@
         livingAreaM2: living,
         plotAreaM2: plot,
         rooms,
-        city: String(pick(records, ["objregio2", "addresslocality", "city", "stadt"]) ?? "").trim(),
-        district: String(pick(records, ["objregio3", "district"]) ?? "").trim() || null,
+        city,
+        district,
         postalCode: String(pick(records, ["objzipcode", "geoplz", "postalcode", "postcode", "plz"]) ?? "").replace(/\s/g, "") || null,
         state: String(pick(records, ["objregio1", "addressregion", "state", "bundesland"]) ?? "").trim() || null,
         street,
         latitude: hasPoint ? latitude : null,
         longitude: hasPoint ? longitude : null,
+        locationPrecision: hasPoint ? precision : null,
         propertyType,
         listingKind,
         yearBuilt: year(pick(records, ["objyearconstructed", "yearconstructed", "yearbuilt", "baujahr", "constructionyear"])),
         yearRefurbished: year(pick(records, ["objlastrefurbishment", "lastrefurbishment", "yearrefurbished"])),
         energyClass: energyClass(pick(records, ["objenergyefficiencyclass", "energyefficiencyclass", "energieeffizienzklasse", "energyclass"])),
         energyKwh: parseDeNumber(pick(records, ["objthermalcharacteristic", "thermalcharacteristic", "endenergieverbrauch", "endenergiebedarf", "energykwh"])),
-        energyCert: energyCert(pick(records, ["objbuildingenergyratingtype", "buildingenergyratingtype", "energycertificatetype", "energycert"])),
+        energyCert: energyCert(pick(records, ["objbuildingenergyratingtype", "buildingenergyratingtype", "objenergytype", "energycertificatetype", "energycert"])),
         heating: heatingLabel(firing, heatingType, heatingFree),
         hausgeldEur: hausgeld,
         coldRentEur: listingKind === "rent" ? coldRent ?? price : coldRent,
@@ -479,6 +674,10 @@
     }
     const blob = scriptBlob(doc);
     const records = [];
+    const classified = immoweltClassified(doc);
+    if (classified) records.push(immoweltRecord(classified));
+    const explicit = is24Record(blob);
+    if (Object.keys(explicit).length) records.push(explicit);
     const keyValues = assignedObject(blob, "keyValues");
     if (keyValues) records.push(keyValues);
     const fields = regexFields(blob);

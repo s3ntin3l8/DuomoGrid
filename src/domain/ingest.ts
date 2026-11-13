@@ -89,10 +89,10 @@ function coordinate(value: unknown): number | null {
 }
 
 /** A point is stored only when both coordinates are in range. 0,0 is a portal sentinel, not a place. */
-function pointOf(latValue: unknown, lngValue: unknown): {
+function pointOf(latValue: unknown, lngValue: unknown, precisionValue?: unknown): {
   latitude: number | null;
   longitude: number | null;
-  locationPrecision: "exact" | null;
+  locationPrecision: "exact" | "approximate" | null;
 } {
   const latitude = coordinate(latValue);
   const longitude = coordinate(lngValue);
@@ -100,7 +100,8 @@ function pointOf(latValue: unknown, lngValue: unknown): {
   if (latitude == null || longitude == null) return missing;
   if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return missing;
   if (Math.abs(latitude) < 1e-8 && Math.abs(longitude) < 1e-8) return missing;
-  return { latitude, longitude, locationPrecision: "exact" };
+  // Only "approximate" is believed. Anything else, or nothing, is exact, so older extensions keep working.
+  return { latitude, longitude, locationPrecision: precisionValue === "approximate" ? "approximate" : "exact" };
 }
 
 /** Both coordinates in range, or null. 0,0 is not a place. Client precision is ignored. */
@@ -129,7 +130,7 @@ export function parseIngest(input: unknown): IngestResult {
   const price = looseNumber(body.priceEur);
   const coldRent = looseNumber(body.coldRentEur);
   const title = String(body.title ?? "").replace(/\s+/g, " ").trim() || "Listing";
-  const point = pointOf(body.latitude ?? body.lat ?? body.geoLat, body.longitude ?? body.lng ?? body.lon ?? body.geoLng ?? body.geoLong);
+  const point = pointOf(body.latitude ?? body.lat ?? body.geoLat, body.longitude ?? body.lng ?? body.lon ?? body.geoLng ?? body.geoLong, body.locationPrecision);
   return {
     ok: true,
     listing: {

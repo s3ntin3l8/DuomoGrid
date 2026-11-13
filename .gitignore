@@ -21,3 +21,6 @@ docker-compose.override.yaml
 # Agent workspace / superpowers plans scratch
 docs/superpowers/
 
+
+# Saved portal pages used for local extractor work (contain agent contact data)
+.sample/

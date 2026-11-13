@@ -56,4 +56,22 @@ describe("parseIngest location", () => {
     expect(parsed.listing.latitude).toBe(48.137154);
     expect(parsed.listing.longitude).toBe(11.575382);
   });
+
+  it("believes only an approximate precision from the client; anything else stays exact", () => {
+    const approximate = parseIngest({ title: "Area", latitude: 48.5, longitude: 11.5, locationPrecision: "approximate" });
+    const other = parseIngest({ title: "Other", latitude: 48.5, longitude: 11.5, locationPrecision: "city" });
+    const absent = parseIngest({ title: "Absent", latitude: 48.5, longitude: 11.5 });
+    for (const parsed of [approximate, other, absent]) expect(parsed.ok).toBe(true);
+    if (!approximate.ok || !other.ok || !absent.ok) return;
+    expect(approximate.listing.locationPrecision).toBe("approximate");
+    expect(other.listing.locationPrecision).toBe("exact");
+    expect(absent.listing.locationPrecision).toBe("exact");
+  });
+
+  it("has no precision without a point, even when the client sends one", () => {
+    const parsed = parseIngest({ title: "No point", locationPrecision: "approximate" });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing.locationPrecision).toBeNull();
+  });
 });
