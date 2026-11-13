@@ -50,6 +50,7 @@ describe("parseTrustProxy", () => {
     expect(parseTrustProxy("true")).toBe(true);
     expect(parseTrustProxy("10.0.0.1, 172.18.0.0/16")).toEqual(["10.0.0.1", "172.18.0.0/16"]);
     expect(parseTrustProxy("loopback")).toEqual(["loopback"]);
+    expect(parseTrustProxy("10.0.0.0/255.0.0.0")).toEqual(["10.0.0.0/255.0.0.0"]);
   });
 
   it("turns a hop count into a function that trusts that many hops", () => {
@@ -58,7 +59,7 @@ describe("parseTrustProxy", () => {
   });
 
   it("rejects invalid values with a TRUST_PROXY message", () => {
-    for (const bad of ["ture", "10.0.0.0/33", "10.0.0.1/x", "1.2.3"]) {
+    for (const bad of [",", " , ", "ture", "10.0.0.0/33", "10.0.0.1/x", "1.2.3"]) {
       expect(() => parseTrustProxy(bad)).toThrow(/TRUST_PROXY/);
     }
   });

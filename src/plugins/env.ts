@@ -76,6 +76,11 @@ export function parseTrustProxy(
     .split(",")
     .map((v) => v.trim())
     .filter((v) => v.length > 0);
+  if (entries.length === 0) {
+    throw new Error(
+      `Invalid TRUST_PROXY "${value}": no addresses found; use false to disable`,
+    );
+  }
   for (const entry of entries) {
     if (!isValidProxyEntry(entry)) {
       throw new Error(
@@ -94,6 +99,8 @@ function isValidProxyEntry(entry: string): boolean {
   const family = isIP(addr);
   if (family === 0 || rest.length > 0) return false;
   if (mask === undefined) return true;
+  // proxy-addr also accepts an IPv4 netmask (10.0.0.0/255.0.0.0).
+  if (family === 4 && isIP(mask) === 4) return true;
   if (!/^\d+$/.test(mask)) return false;
   return Number(mask) <= (family === 4 ? 32 : 128);
 }
