@@ -1,19 +1,26 @@
-import type { DeskListing } from "./api";
+import { useState } from "react";
+import type { DeskListing, ListingPatch, StateOption } from "./api";
 import { area, eur, num, propertyLabel, statusLabel, STATUSES, when } from "./format";
 
 export function Detail({
   row,
+  states,
   onBack,
   onStatus,
   onNotes,
+  onCorrect,
+  onRemove,
   onClearPoint,
   landPending,
   landMiss,
 }: {
   row: DeskListing;
+  states: StateOption[];
   onBack: () => void;
   onStatus: (status: string) => void;
   onNotes: (notes: string) => void;
+  onCorrect: (body: ListingPatch) => Promise<void>;
+  onRemove: () => Promise<void>;
   onClearPoint: () => void;
   landPending: boolean;
   landMiss: boolean;
@@ -172,6 +179,16 @@ export function Detail({
         <h3>Notes</h3>
         <Notes initial={row.notes} onSave={onNotes} />
       </section>
+      <section className="block">
+        <h3>Correct</h3>
+        <p className="meta">A later save from the exposé replaces these. Warm rent and the condo fee stay as saved.</p>
+        <CorrectForm row={row} states={states} onCorrect={onCorrect} />
+      </section>
+      <section className="block">
+        <h3>Remove</h3>
+        <p className="meta">Pass keeps the listing. Remove deletes it and its price history.</p>
+        <RemoveListing key={row.id} onRemove={onRemove} />
+      </section>
     </article>
   );
 }
@@ -277,5 +294,170 @@ function Notes({ initial, onSave }: { initial: string; onSave: (notes: string) =
         <button className="primary" type="submit">Save notes</button>
       </div>
     </form>
+  );
+}
+
+const PROPERTY_OPTIONS = [
+  ["apartment", "Apartment"],
+  ["house", "House"],
+  ["land", "Plot"],
+  ["multi", "Multi-family"],
+  ["other", "Other"],
+] as const;
+
+const ENERGY_OPTIONS = ["A+", "A", "B", "C", "D", "E", "F", "G", "H"];
+
+function readNumber(value: FormDataEntryValue | null, label: string): number | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed)) throw new Error(`${label} must be a number, or empty.`);
+  return parsed;
+}
+
+function CorrectForm({
+  row,
+  states,
+  onCorrect,
+}: {
+  row: DeskListing;
+  states: StateOption[];
+  onCorrect: (body: ListingPatch) => Promise<void>;
+}) {
+  const listing = row.listing;
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      key={`${row.id}:${row.updatedAt}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        let body: ListingPatch;
+        try {
+          body = {
+            city: String(data.get("city") ?? ""),
+            district: String(data.get("district") ?? ""),
+            state: String(data.get("state") ?? "") || null,
+            propertyType: String(data.get("propertyType") ?? ""),
+            livingAreaM2: readNumber(data.get("livingAreaM2"), "Living area"),
+            plotAreaM2: readNumber(data.get("plotAreaM2"), "Plot area"),
+            rooms: readNumber(data.get("rooms"), "Rooms"),
+            yearBuilt: readNumber(data.get("yearBuilt"), "Year built"),
+            energyClass: String(data.get("energyClass") ?? "") || null,
+            priceEur: readNumber(data.get("priceEur"), "Price"),
+          };
+        } catch (reason: unknown) {
+          setError(reason instanceof Error ? reason.message : "Could not save.");
+          return;
+        }
+        setBusy(true);
+        setError("");
+        void onCorrect(body)
+          .catch((reason: unknown) => {
+            setError(reason instanceof Error ? reason.message : "Could not save.");
+          })
+          .finally(() => setBusy(false));
+      }}
+    >
+      <div className="facts">
+        <label>
+          City
+          <input name="city" defaultValue={listing.city} />
+        </label>
+        <label>
+          District
+          <input name="district" defaultValue={listing.district ?? ""} />
+        </label>
+        <label>
+          State
+          <select name="state" defaultValue={listing.state ?? ""}>
+            <option value="">Unknown</option>
+            {states.map((state) => (
+              <option key={state.id} value={state.id}>
+                {state.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Type
+          <select name="propertyType" defaultValue={listing.propertyType}>
+            {PROPERTY_OPTIONS.map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Living area, m²
+          <input name="livingAreaM2" type="number" step="any" defaultValue={listing.livingAreaM2 ?? ""} />
+        </label>
+        <label>
+          Plot area, m²
+          <input name="plotAreaM2" type="number" step="any" defaultValue={listing.plotAreaM2 ?? ""} />
+        </label>
+        <label>
+          Rooms
+          <input name="rooms" type="number" step="any" defaultValue={listing.rooms ?? ""} />
+        </label>
+        <label>
+          Year built
+          <input name="yearBuilt" type="number" step="1" defaultValue={listing.yearBuilt ?? ""} />
+        </label>
+        <label>
+          Energy class
+          <select name="energyClass" defaultValue={listing.energyClass ?? ""}>
+            <option value="">None</option>
+            {ENERGY_OPTIONS.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Price, euro
+          <input name="priceEur" type="number" step="any" defaultValue={listing.priceEur ?? ""} />
+        </label>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      <div className="row-actions">
+        <button className="primary" type="submit" disabled={busy}>
+          {busy ? "Saving…" : "Save correction"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function RemoveListing({ onRemove }: { onRemove: () => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!confirming) {
+    return (
+      <button className="quiet" type="button" onClick={() => setConfirming(true)}>
+        Remove
+      </button>
+    );
+  }
+  return (
+    <div className="row-actions">
+      <button className="quiet" type="button" disabled={busy} onClick={() => setConfirming(false)}>
+        Keep
+      </button>
+      <button
+        className="primary"
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          void onRemove().catch(() => setBusy(false));
+        }}
+      >
+        Remove listing
+      </button>
+    </div>
   );
 }

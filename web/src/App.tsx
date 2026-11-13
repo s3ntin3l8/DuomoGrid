@@ -5,11 +5,13 @@ import {
   loadListing,
   loadListings,
   rememberToken,
+  removeListing,
   saveAssumptions,
   saveListing,
   storedToken,
   type Assumptions,
   type DeskListing,
+  type ListingPatch,
   type StateOption,
 } from "./api";
 import { AssumptionsForm } from "./Assumptions";
@@ -72,7 +74,7 @@ export function App() {
       .sort((left, right) => (right.analysis.score ?? -1) - (left.analysis.score ?? -1));
   }, [rows, offer, status]);
 
-  const active = rows.find((row) => row.id === activeId) ?? visible[0] ?? null;
+  const active = activeId === "" ? null : rows.find((row) => row.id === activeId) ?? visible[0] ?? null;
   const compared = picked.map((id) => rows.find((row) => row.id === id)).filter((row): row is DeskListing => Boolean(row));
 
   function open(id: string) {
@@ -102,7 +104,7 @@ export function App() {
     });
   }
 
-  async function mutate(id: string, body: { notes?: string; status?: string; latitude?: number; longitude?: number; clearPoint?: boolean }) {
+  async function mutate(id: string, body: ListingPatch) {
     const updated = await saveListing(token, id, body);
     setRows((current) => current.map((row) => (row.id === id ? updated : row)));
   }
@@ -244,21 +246,52 @@ export function App() {
         {mode === "detail" && active ? (
           <Detail
             row={active}
+            states={states}
             onBack={() => setReading(false)}
             onStatus={(next) => void mutate(active.id, { status: next })}
             onNotes={(notes) => void mutate(active.id, { notes })}
+            onCorrect={async (correction) => {
+              try {
+                await mutate(active.id, correction);
+                setError("");
+              } catch (reason: unknown) {
+                setError(reason instanceof Error ? reason.message : "Could not save the correction.");
+                throw reason;
+              }
+            }}
+            onRemove={async () => {
+              const id = active.id;
+              try {
+                await removeListing(token, id);
+                setRows((current) => current.filter((row) => row.id !== id));
+                setPicked((current) => current.filter((item) => item !== id));
+                setActiveId("");
+                setReading(false);
+                setError("");
+              } catch (reason: unknown) {
+                setError(reason instanceof Error ? reason.message : "Could not remove the listing.");
+                throw reason;
+              }
+            }}
             onClearPoint={() => void mutate(active.id, { clearPoint: true })}
             landPending={landPendingId === active.id && active.bodenrichtwert?.status === "unknown"}
             landMiss={landMissId === active.id && active.bodenrichtwert?.status === "unknown"}
           />
         ) : null}
         {mode === "detail" && !active ? (
-          <section className="empty">
-            <h2 className="mark">Nothing saved yet.</h2>
-            <p className="lede">
-              Open one exposé on ImmoScout24 or Immowelt and use the extension. It sends that page here. This desk does not go looking for listings.
-            </p>
-          </section>
+          rows.length === 0 ? (
+            <section className="empty">
+              <h2 className="mark">Nothing saved yet.</h2>
+              <p className="lede">
+                Open one exposé on ImmoScout24 or Immowelt and use the extension. It sends that page here. This desk does not go looking for listings.
+              </p>
+            </section>
+          ) : (
+            <section className="empty">
+              <h2 className="mark">Listing removed.</h2>
+              <p className="lede">Pick another one from the list. Pass still only changes the status.</p>
+            </section>
+          )
         ) : null}
       </main>
     </div>

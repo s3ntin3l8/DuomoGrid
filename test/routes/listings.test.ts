@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../../src/app.js";
-import { listings } from "../../src/db/schema.js";
+import { listings, observations } from "../../src/db/schema.js";
 
 describe("listings", () => {
   afterEach(() => {
@@ -473,5 +473,345 @@ describe("listings", () => {
       globalThis.fetch = realFetch;
       await app.close();
     }
+  });
+
+  it("rejects delete when no token is configured", async () => {
+    delete process.env.INGEST_TOKEN;
+    const app = await buildApp();
+    const response = await app.inject({ method: "DELETE", url: "/listings/x" });
+    expect(response.statusCode).toBe(503);
+    await app.close();
+  });
+
+  it("corrects facts without moving the point and deletes the listing", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response("bodenrichtwertszonenname = Untere Altstadt\nbodenrichtwert = 2.000\nstichtag = 01.01.2026\n", {
+        status: 200,
+      })) as typeof fetch;
+    const headers = { authorization: "Bearer test-token" };
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/listings",
+        headers,
+        payload: {
+          v: 1,
+          source: "immobilienscout24",
+          sourceUrl: "https://www.immobilienscout24.de/expose/901",
+          externalId: "901",
+          title: "Altstadt apartment",
+          priceEur: 465000,
+          livingAreaM2: 92,
+          city: "Landshut",
+          state: "BY",
+          propertyType: "apartment",
+          listingKind: "sale",
+          latitude: "48.537",
+          longitude: "12.152",
+        },
+      });
+      expect(created.statusCode).toBe(201);
+      const id = created.json().id as string;
+      const detail = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(detail.json().bodenrichtwert.eurPerM2).toBe(2000);
+
+      const corrected = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { livingAreaM2: 100, offer: "rent" },
+      });
+      expect(corrected.statusCode).toBe(200);
+      expect(corrected.json().listing.livingAreaM2).toBe(100);
+      expect(corrected.json().analysis.pricePerLivingM2).toBe(4650);
+      expect(corrected.json().listing.offer).toBe("buy");
+      expect(corrected.json().listing.latitude).toBe(48.537);
+      expect(corrected.json().listing.longitude).toBe(12.152);
+      expect(corrected.json().bodenrichtwert).toMatchObject({ status: "published", eurPerM2: 2000 });
+      expect(corrected.json().districtSaleBand).not.toBeNull();
+
+      const zero = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { livingAreaM2: 0, latitude: 49.1, longitude: 8.1 },
+      });
+      expect(zero.statusCode).toBe(400);
+      const unchanged = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+      expect(unchanged?.livingAreaM2).toBe(100);
+      expect(unchanged?.latitude).toBe(48.537);
+      expect(unchanged?.brwEurPerM2).toBe(2000);
+
+      const comma = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { livingAreaM2: "92,5" },
+      });
+      expect(comma.statusCode).toBe(400);
+      expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.livingAreaM2).toBe(100);
+
+      const badYear = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { yearBuilt: 1500 },
+      });
+      expect(badYear.statusCode).toBe(400);
+      const badClass = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { energyClass: "A++" },
+      });
+      expect(badClass.statusCode).toBe(400);
+      const clearedType = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { propertyType: "" },
+      });
+      expect(clearedType.statusCode).toBe(400);
+
+      const priced = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { priceEur: 450000 },
+      });
+      expect(priced.statusCode).toBe(200);
+      expect(priced.json().listing.priceEur).toBe(450000);
+      expect(priced.json().observations).toHaveLength(2);
+      expect(priced.json().observations[0].priceEur).toBe(450000);
+
+      const repeat = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { priceEur: 450000 },
+      });
+      expect(repeat.json().observations).toHaveLength(2);
+
+      const noted = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { notes: "Ask about the roof" },
+      });
+      expect(noted.json().notes).toBe("Ask about the roof");
+      expect(noted.json().observations).toHaveLength(2);
+
+      const state = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { state: "XX" },
+      });
+      expect(state.statusCode).toBe(400);
+      expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.state).toBe("BY");
+
+      const city = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { city: null },
+      });
+      expect(city.statusCode).toBe(200);
+      expect(city.json().listing.city).toBe("");
+      expect(city.json().districtSaleBand).toBeNull();
+
+      const blank = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { city: "  ", district: "" },
+      });
+      expect(blank.json().listing.city).toBe("");
+      expect(blank.json().listing.district).toBeNull();
+
+      const denied = await app.inject({ method: "DELETE", url: `/listings/${id}` });
+      expect(denied.statusCode).toBe(401);
+      const missing = await app.inject({ method: "DELETE", url: "/listings/missing-id", headers });
+      expect(missing.statusCode).toBe(404);
+      const removed = await app.inject({ method: "DELETE", url: `/listings/${id}`, headers });
+      expect(removed.statusCode).toBe(200);
+      expect(removed.json()).toEqual({ deleted: true });
+      expect(app.db.select().from(observations).where(eq(observations.listingId, id)).all()).toEqual([]);
+      const gone = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(gone.statusCode).toBe(404);
+      const listed = await app.inject({ method: "GET", url: "/listings", headers });
+      expect(listed.json().some((item: { id: string }) => item.id === id)).toBe(false);
+    } finally {
+      globalThis.fetch = realFetch;
+      await app.close();
+    }
+  });
+
+  it("writes a rental price change onto the cold rent the analysis uses", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const created = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: {
+        v: 1,
+        source: "immowelt",
+        sourceUrl: "https://www.immowelt.de/expose/iw-1",
+        externalId: "iw-1",
+        title: "Rental",
+        priceEur: 1000,
+        warmRentEur: 1400,
+        livingAreaM2: 50,
+        city: "Darmstadt",
+        state: "HE",
+        propertyType: "apartment",
+        listingKind: "rent",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id as string;
+    expect(created.json().listing.coldRentEur).toBe(1000);
+    expect(created.json().analysis.rentPerM2).toBe(20);
+    expect(created.json().analysis.score).toBeNull();
+
+    const priced = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers,
+      payload: { priceEur: 1200 },
+    });
+    expect(priced.statusCode).toBe(200);
+    expect(priced.json().listing.offer).toBe("rent");
+    expect(priced.json().listing.priceEur).toBe(1200);
+    expect(priced.json().listing.coldRentEur).toBe(1200);
+    expect(priced.json().listing.warmRentEur).toBe(1400);
+    expect(priced.json().analysis.rentPerM2).toBe(24);
+    expect(priced.json().analysis.score).toBeNull();
+    expect(priced.json().observations).toHaveLength(2);
+
+    const repeat = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers,
+      payload: { priceEur: 1200 },
+    });
+    expect(repeat.json().observations).toHaveLength(2);
+    expect(repeat.json().listing.coldRentEur).toBe(1200);
+
+    const zero = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers,
+      payload: { priceEur: 0 },
+    });
+    expect(zero.statusCode).toBe(400);
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.coldRentEur).toBe(1200);
+    await app.close();
+  });
+
+  it("accepts the other fact fields and rejects a bad correction before writing", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const created = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: {
+        v: 1,
+        source: "immobilienscout24",
+        sourceUrl: "https://www.immobilienscout24.de/expose/902",
+        externalId: "902",
+        title: "House",
+        priceEur: 300000,
+        livingAreaM2: 120,
+        city: "Landshut",
+        state: "BY",
+        propertyType: "apartment",
+        listingKind: "sale",
+        latitude: "48.537",
+        longitude: "12.152",
+      },
+    });
+    const id = created.json().id as string;
+    const missing = await app.inject({
+      method: "PATCH",
+      url: "/listings/missing-id",
+      headers,
+      payload: { city: "X" },
+    });
+    expect(missing.statusCode).toBe(404);
+
+    const filled = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers,
+      payload: {
+        plotAreaM2: 520,
+        rooms: 3.5,
+        district: " Altstadt ",
+        state: "HE",
+        propertyType: "house",
+        yearBuilt: 1910,
+        energyClass: "A+",
+        city: " Darmstadt ",
+      },
+    });
+    expect(filled.statusCode).toBe(200);
+    expect(filled.json().listing).toMatchObject({
+      plotAreaM2: 520,
+      rooms: 3.5,
+      district: "Altstadt",
+      state: "HE",
+      propertyType: "house",
+      yearBuilt: 1910,
+      energyClass: "A+",
+      city: "Darmstadt",
+      latitude: 48.537,
+      offer: "buy",
+    });
+    expect(filled.json().analysis.transferTaxPercent).toBe(6);
+    expect(filled.json().bodenrichtwert.status).toBe("unknown");
+
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers,
+      payload: { plotAreaM2: "", rooms: null, district: "   ", state: "", yearBuilt: "", energyClass: null, livingAreaM2: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().listing).toMatchObject({
+      plotAreaM2: null,
+      rooms: null,
+      district: null,
+      state: null,
+      yearBuilt: null,
+      energyClass: null,
+      livingAreaM2: null,
+    });
+    expect(cleared.json().listing.latitude).toBe(48.537);
+
+    const both = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers,
+      payload: { clearPoint: true, latitude: 49, longitude: 8 },
+    });
+    expect(both.statusCode).toBe(400);
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.latitude).toBe(48.537);
+
+    for (const payload of [{ city: 12 }, { district: 4 }, { plotAreaM2: -3 }, { rooms: 0 }, { yearBuilt: 2101 }, { energyClass: "a" }]) {
+      const rejected = await app.inject({ method: "PATCH", url: `/listings/${id}`, headers, payload });
+      expect(rejected.statusCode).toBe(400);
+    }
+    const row = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+    expect(row?.city).toBe("Darmstadt");
+    expect(row?.latitude).toBe(48.537);
+    await app.close();
   });
 });

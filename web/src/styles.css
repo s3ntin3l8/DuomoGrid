@@ -152,6 +152,7 @@ td:first-child { color: var(--muted); white-space: nowrap; }
 
 .panel { max-width: 640px; }
 .fields { display: grid; gap: 12px; margin: 16px 0; }
+.facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0 12px; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .choice { display: flex; gap: 14px; color: var(--ink); }
 .choice label { display: flex; gap: 6px; align-items: center; color: var(--ink); }
@@ -173,7 +174,7 @@ td:first-child { color: var(--muted); white-space: nowrap; }
   .shell { display: block; }
   .shell.reading .rail, .shell:not(.reading) .main { display: none; }
   .rail { min-height: auto; border-right: 0; }
-  .cols, .pair { grid-template-columns: 1fr; }
+  .cols, .pair, .facts { grid-template-columns: 1fr; }
   .hero .price { font-size: 34px; }
   .main { padding: 16px; }
 }
