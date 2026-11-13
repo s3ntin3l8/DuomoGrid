@@ -92,6 +92,7 @@ textarea { min-height: 96px; resize: vertical; }
 }
 .item strong { font-weight: 600; }
 .item small, .meta { color: var(--muted); }
+.item small.per { grid-column: 1 / -1; text-align: right; }
 .item small.down { color: var(--good); }
 .item small.up { color: var(--warn); }
 .item.on { background: var(--cedar-soft); border-left-color: var(--cedar); }

@@ -30,9 +30,19 @@ export function priceMove(observations: { priceEur: number | null }[]): number |
 
 export function moveLabel(change: number | null): string | null {
   if (change == null || !Number.isFinite(change)) return null;
-  const rounded = Math.round(change);
+  const rounded = Math.round(Math.abs(change)) * Math.sign(change);
   if (rounded === 0) return null;
   return rounded > 0 ? `+${rounded}%` : `−${Math.abs(rounded)}%`;
+}
+
+export function perM2Text(buy: boolean, perM2: number | null | undefined): string | null {
+  if (perM2 == null || !Number.isFinite(perM2)) return null;
+  return `${eur(perM2, buy ? 0 : 2)} / m²`;
+}
+
+export function priceMoveText(change: number | null): string | null {
+  const label = moveLabel(change);
+  return label == null ? null : `price ${label}`;
 }
 
 export function when(iso: string): string {
