@@ -40,6 +40,8 @@ COPY --from=build /app/web/dist ./web/dist
 COPY --from=build /app/package.json ./
 # Migrations are applied at startup by ensureDb() (resolves ./drizzle).
 COPY --from=build /app/drizzle ./drizzle
+# District sale bands. Not under /app/data: that path is the SQLite volume.
+COPY --from=build /app/reference/ak-oga ./reference/ak-oga
 
 # Writable data dir for the default SQLite database, owned by the non-root user.
 RUN mkdir -p /app/data && chown -R node:node /app

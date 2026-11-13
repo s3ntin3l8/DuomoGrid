@@ -5,6 +5,7 @@ import { normalizeAssumptions } from "../domain/assumptions.js";
 import { analyze } from "../domain/analyze.js";
 import { cohortSummary, rentAgainstBuy, type CohortRow } from "../domain/compare.js";
 import { exactPoint, parseIngest } from "../domain/ingest.js";
+import { districtSaleBandFor } from "../domain/district-band.js";
 import { fetchBodenrichtwert, type Bodenrichtwert } from "../domain/bodenrichtwert.js";
 import { DEFAULT_ASSUMPTIONS } from "../domain/types.js";
 import type { Assumptions, ListingInput, Offer, PropertyType, Source } from "../domain/types.js";
@@ -175,6 +176,13 @@ export async function listingsRoute(app: FastifyInstance) {
       cohort: cohortSummary(subject, everyone),
       rentComparison: rentAgainstBuy({ ...subject, monthlyCarryingEur: analysis.monthlyTotal }, everyone),
       bodenrichtwert: bodenrichtwertView(row),
+      districtSaleBand: districtSaleBandFor({
+        offer: row.offer,
+        propertyType: row.propertyType,
+        city: row.city,
+        district: row.district,
+        state: row.state,
+      }),
     };
   }
 

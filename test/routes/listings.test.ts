@@ -336,4 +336,66 @@ describe("listings", () => {
       await app.close();
     }
   });
+
+  it("shows a district sale band for a buy and not for a rental", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const base = {
+      v: 1,
+      source: "immobilienscout24",
+      sourceUrl: "https://www.immobilienscout24.de/expose/789",
+      externalId: "789",
+      title: "Munich apartment",
+      priceEur: 700000,
+      livingAreaM2: 80,
+      city: "München",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+    };
+    const created = await app.inject({ method: "POST", url: "/listings", headers, payload: base });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().districtSaleBand).toEqual({
+      name: "München",
+      stateName: "Bayern",
+      year: 2024,
+      band: "3250 und mehr",
+      kind: "apartment",
+    });
+    const score = created.json().analysis.score;
+    expect(score).toEqual(expect.any(Number));
+
+    const house = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: {
+        ...base,
+        externalId: "790",
+        sourceUrl: "https://www.immobilienscout24.de/expose/790",
+        propertyType: "house",
+        title: "Munich house",
+      },
+    });
+    expect(house.json().districtSaleBand).toMatchObject({ kind: "house", band: "3500 und mehr", name: "München" });
+
+    const rented = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: {
+        ...base,
+        externalId: "791",
+        sourceUrl: "https://www.immobilienscout24.de/expose/791",
+        listingKind: "rent",
+        priceEur: 1800,
+        title: "Munich rent",
+      },
+    });
+    expect(rented.json().districtSaleBand).toBeNull();
+    expect(rented.json().analysis.score).toBeNull();
+    expect(created.json().analysis.score).toBe(score);
+    await app.close();
+  });
 });
