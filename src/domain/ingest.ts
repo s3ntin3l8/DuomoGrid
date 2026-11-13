@@ -111,7 +111,8 @@ function parkingTypeOf(value: unknown): ParkingType | null {
 
 function listedAtOf(value: unknown): string | null {
   const text = textOrNull(value);
-  if (!text) return null;
+  // ISO only. "05.03.2024" and "03/05/2024" mean different days to different readers, and Date guesses.
+  if (!text || !/^\d{4}-\d{2}-\d{2}/.test(text)) return null;
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) return null;
   const year = date.getUTCFullYear();

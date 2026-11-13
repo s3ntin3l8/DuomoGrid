@@ -26,13 +26,17 @@ export type DescriptionFindings = {
   heatingReplacedYear: number | null;
 };
 
+/** "kein", "nicht", "ohne": a sentence that says no never produces a finding. */
 const NEGATION = /\b(kein|keine|keinen|keiner|keinem|nicht|ohne|frei von|entf(ä|ae)llt)\b/i;
-const YEAR = "((?:19|20)\\d{2})";
-const VERB = "(?:renoviert|saniert|modernisiert|erneuert|umgebaut)";
-const YEAR_BEFORE_VERB = new RegExp(`${YEAR}[^.\\n]{0,40}?\\b${VERB}`, "i");
-const YEAR_AFTER_VERB = new RegExp(`\\b${VERB}[^\\n]{0,20}?${YEAR}`, "i");
-const HEATING_WORD = /heizung|heizkessel|brenner|therme/i;
-const HEATING_VERB = /erneuer|ausgetauscht|installiert|eingebaut|modernisiert/i;
+/** A possibility or a plan is not a fact about the building. Only the positive findings skip these. */
+const HYPOTHETICAL = /\b(geeignet|vorbereitet|vorbereitung|nachr(ü|ue)stbar|nachr(ü|ue)stung|m(ö|oe)glich|m(ö|oe)glichkeit|optional|auf wunsch|denkbar|k(ö|oe)nnte|k(ö|oe)nnen|kann|geplant|plant)\b/i;
+/** A calendar year that is not part of a longer number such as 2.500 or 20.000. */
+const YEAR = /(?<![\d.,])((?:19|20)\d{2})(?![\d]|[.,]\d{3})/g;
+const RENOVATION_VERB = /\b(renoviert|saniert|modernisiert|erneuert|umgebaut)\b/i;
+const HEATING_WORD = /heizung|heizkessel|heizanlage|gastherme|brennwert/i;
+const HEATING_VERB = /erneuer|ausgetauscht|installiert|eingebaut/i;
+const PER_UNIT = /monatlich|mtl\.|pro monat|\/\s*monat|pro m²|\/\s*m²|je m²|pro qm|\/\s*qm/i;
+const RESERVE_MIN_EUR = 500;
 
 function sentences(text: string): string[] {
   return text
@@ -42,15 +46,27 @@ function sentences(text: string): string[] {
     .filter((part) => part.length > 0);
 }
 
+/** Clauses split on commas, semicolons and "und", so a year only pairs with the verb in its own clause. */
+function clauses(sentence: string): string[] {
+  return sentence.split(/[;,]|\bund\b|\bsowie\b/i).map((part) => part.trim()).filter((part) => part.length > 0);
+}
+
 function snippetOf(sentence: string): string {
   return sentence.length > 220 ? `${sentence.slice(0, 217)}...` : sentence;
 }
 
-function yearIn(sentence: string, now: number): number | null {
-  const matches = [sentence.match(YEAR_BEFORE_VERB), sentence.match(YEAR_AFTER_VERB)]
-    .map((match) => (match ? Number(match[1]) : null))
-    .filter((year): year is number => year != null && year <= now);
-  return matches.length ? Math.max(...matches) : null;
+/** The year closest to a verb in one clause, not later than `now`. A year of build or of tenancy sits in another clause. */
+function yearNear(clause: string, verb: RegExp, now: number): number | null {
+  const at = clause.search(verb);
+  if (at < 0) return null;
+  let best: { year: number; distance: number } | null = null;
+  for (const match of clause.matchAll(YEAR)) {
+    const year = Number(match[1]);
+    if (year > now) continue;
+    const distance = Math.abs((match.index ?? 0) - at);
+    if (best == null || distance < best.distance) best = { year, distance };
+  }
+  return best?.year ?? null;
 }
 
 function germanAmount(raw: string): number | null {
@@ -61,8 +77,8 @@ function germanAmount(raw: string): number | null {
 }
 
 /**
- * Reads the long description for facts that are worth a second look. Negated sentences ("keine Sonderumlage",
- * "nicht vermietet") never produce a finding. Nothing here is a score input.
+ * Reads the long description for facts that are worth a second look. A sentence that says no, or only that something
+ * is possible or planned, never produces a finding. Nothing here is a score input.
  */
 export function describeFindings(description: ListingDescription | null, now = new Date().getUTCFullYear()): DescriptionFindings {
   const empty: DescriptionFindings = { items: [], renovatedYear: null, heatingReplacedYear: null };
@@ -73,53 +89,53 @@ export function describeFindings(description: ListingDescription | null, now = n
   const add = (finding: DescriptionFinding) => {
     if (!found.has(finding.key)) found.set(finding.key, finding);
   };
-  let renovatedYear: number | null = null;
-  let heatingReplacedYear: number | null = null;
+  let renovated: { year: number; snippet: string } | null = null;
+  let heating: { year: number; snippet: string } | null = null;
 
   for (const sentence of sentences(text)) {
     const snippet = snippetOf(sentence);
     const negated = NEGATION.test(sentence);
+    const positive = !negated && !HYPOTHETICAL.test(sentence);
 
-    if (/w(ä|ae)rmepumpe/i.test(sentence) && !negated) add({ key: "heat_pump", label: "Heat pump", snippet });
-    if (/fu(ß|ss)bodenheizung/i.test(sentence) && !negated) add({ key: "underfloor_heating", label: "Underfloor heating", snippet });
-    if (/kernsanier|komplettsanier|vollsanier|entkernt/i.test(sentence) && !negated) {
+    if (positive && /w(ä|ae)rmepumpe/i.test(sentence)) add({ key: "heat_pump", label: "Heat pump", snippet });
+    if (positive && /fu(ß|ss)bodenheizung/i.test(sentence)) add({ key: "underfloor_heating", label: "Underfloor heating", snippet });
+    if (positive && /kernsanier|komplettsanier|vollsanier|entkernt/i.test(sentence)) {
       add({ key: "full_refurbishment", label: "Full refurbishment", snippet });
     }
-    const kfw = sentence.match(/kfw[\s-]*(?:effizienzhaus\s*)?(40|55|70|85|100)\b/i);
-    if (kfw && !negated) add({ key: "kfw_standard", label: `KfW ${kfw[1]} standard`, snippet });
+    const kfw = sentence.match(/kfw[\s-]*(?:effizienzhaus\s*)?(40|55|70|85|100)(?![.,]?\d)/i);
+    if (positive && kfw) add({ key: "kfw_standard", label: `KfW ${kfw[1]} standard`, snippet });
 
-    const heatingSentence = HEATING_WORD.test(sentence) && HEATING_VERB.test(sentence);
-    if (heatingSentence && !negated) {
-      const year = yearIn(sentence, now) ?? (sentence.match(new RegExp(YEAR))?.[1] ? Number(sentence.match(new RegExp(YEAR))?.[1]) : null);
-      if (year != null && year <= now) {
-        if (heatingReplacedYear == null || year > heatingReplacedYear) heatingReplacedYear = year;
-        add({ key: "heating_replaced", label: `Heating renewed ${year}`, snippet, year });
-      }
-    } else if (!negated) {
-      const year = yearIn(sentence, now);
-      if (year != null) {
-        if (renovatedYear == null || year > renovatedYear) renovatedYear = year;
+    if (positive) {
+      const isHeating = HEATING_WORD.test(sentence) && HEATING_VERB.test(sentence);
+      for (const clause of clauses(sentence)) {
+        if (isHeating && HEATING_WORD.test(clause) && HEATING_VERB.test(clause)) {
+          const year = yearNear(clause, HEATING_VERB, now);
+          if (year != null && (heating == null || year > heating.year)) heating = { year, snippet };
+        } else if (!HEATING_WORD.test(clause)) {
+          const year = yearNear(clause, RENOVATION_VERB, now);
+          if (year != null && (renovated == null || year > renovated.year)) renovated = { year, snippet };
+        }
       }
     }
 
-    if (/sonderumlage/i.test(sentence) && !negated) add({ key: "special_levy", label: "Special levy mentioned", snippet });
-    const reserve = sentence.match(/instandhaltungsr(ü|ue)cklage[^.\n]{0,80}?(\d[\d.]*(?:,\d+)?)\s*(?:€|eur)/i);
-    if (reserve && !negated) {
+    if (!negated && /sonderumlage/i.test(sentence)) add({ key: "special_levy", label: "Special levy mentioned", snippet });
+    const reserve = sentence.match(/instandhaltungsr(ü|ue)cklage[^\n]{0,80}?(\d[\d.]*(?:,\d+)?)\s*(?:€|eur)/i);
+    if (!negated && reserve && !PER_UNIT.test(sentence)) {
       const amount = germanAmount(reserve[2]);
-      if (amount != null) add({ key: "maintenance_reserve", label: `Maintenance reserve about ${new Intl.NumberFormat("de-DE").format(amount)} EUR`, snippet, amountEur: amount });
+      if (amount != null && amount >= RESERVE_MIN_EUR) {
+        add({ key: "maintenance_reserve", label: `Maintenance reserve about ${new Intl.NumberFormat("de-DE").format(amount)} EUR`, snippet, amountEur: amount });
+      }
     }
-    if (/erbbaurecht|erbpacht/i.test(sentence) && !negated) add({ key: "leasehold", label: "Leasehold mentioned", snippet });
-    if (/\bvermietet\b/i.test(sentence) && !negated) add({ key: "rented", label: "Rented out", snippet });
-    if (/denkmalschutz|denkmalgesch(ü|ue)tzt/i.test(sentence) && !negated) add({ key: "monument", label: "Listed building mentioned", snippet });
+    if (!negated && /erbbaurecht|erbpacht/i.test(sentence)) add({ key: "leasehold", label: "Leasehold mentioned", snippet });
+    if (!negated && /\bvermietet\b/i.test(sentence)) add({ key: "rented", label: "Rented out", snippet });
+    if (!negated && /denkmalschutz|denkmalgesch(ü|ue)tzt/i.test(sentence)) add({ key: "monument", label: "Listed building mentioned", snippet });
   }
 
-  if (renovatedYear != null) {
-    found.set("renovated", {
-      key: "renovated",
-      label: `Renovated ${renovatedYear}`,
-      snippet: `Renovation year read from the description.`,
-      year: renovatedYear,
-    });
-  }
-  return { items: [...found.values()], renovatedYear, heatingReplacedYear };
+  if (heating) found.set("heating_replaced", { key: "heating_replaced", label: `Heating renewed ${heating.year}`, snippet: heating.snippet, year: heating.year });
+  if (renovated) found.set("renovated", { key: "renovated", label: `Renovated ${renovated.year}`, snippet: renovated.snippet, year: renovated.year });
+  return {
+    items: [...found.values()],
+    renovatedYear: (renovated as { year: number } | null)?.year ?? null,
+    heatingReplacedYear: (heating as { year: number } | null)?.year ?? null,
+  };
 }

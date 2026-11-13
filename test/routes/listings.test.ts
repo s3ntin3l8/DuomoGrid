@@ -995,6 +995,21 @@ describe("listings", () => {
     expect(after.json().listing.description).toBeNull();
     expect(after.json().listing.energySource).toBe("Pellets");
 
+    // The year read from the text moves nothing the stored columns say, and the list and the detail agree on the result.
+    const flagsOf = (value: { analysis: { flags: { title: string }[]; score: number | null } }) => ({ score: value.analysis.score, flags: value.analysis.flags.map((flag) => flag.title) });
+    await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: { ...base, yearBuilt: 1960, energyClass: "G", description: { object: "Das Bad wurde 2019 renoviert." } },
+    });
+    const viaDetail = (await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json();
+    const viaList = ((await app.inject({ method: "GET", url: "/listings", headers })).json() as { id: string }[]).find((item) => item.id === id) as typeof viaDetail;
+    expect(viaDetail.listing.yearRefurbished).toBeNull();
+    expect(viaDetail.descriptionFindings.renovatedYear).toBe(2019);
+    expect(flagsOf(viaList)).toEqual(flagsOf(viaDetail));
+    expect(flagsOf(viaDetail).flags).not.toContain("Unrenovated building");
+
     // A renovation year read from the text never overrides a stored one.
     const stored = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...rich, yearRefurbished: 2020 } });
     expect(stored.json().listing.yearRefurbished).toBe(2020);

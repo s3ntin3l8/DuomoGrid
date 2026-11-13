@@ -139,6 +139,8 @@ describe("extract a saved exposé document", () => {
     const details = listing.details as { label: string; value: string }[];
     expect(details).toContainEqual({ label: "Garage/ Stellplatz-Kaufpreis", value: "10.000 €" });
     expect(details).toContainEqual({ label: "Energieausweistyp", value: "Bedarfsausweis" });
+    // A list without the is24qa- class (the agent block) is not an exposé fact.
+    expect(details.some((pair) => pair.label === "Ihr Ansprechpartner")).toBe(false);
   });
 
   it("reads the current Immowelt layout from the double-encoded JSON, with the URL id and a polygon centre", () => {

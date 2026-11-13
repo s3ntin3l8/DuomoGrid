@@ -440,6 +440,8 @@
     for (const dt of doc.querySelectorAll("dt")) {
       const dd = dt.nextElementSibling;
       if (!dd || String(dd.tagName).toLowerCase() !== "dd") continue;
+      // ImmoScout24 tags every exposé fact with an is24qa- class. Other lists on the page (agent, cookies) have none.
+      if (!String(dt.className || "").includes("is24qa-")) continue;
       const label = cleanText(dt.textContent);
       const value = cleanText(dd.textContent);
       if (!label || !value || label.length > 80 || value.length > 200) continue;
@@ -698,7 +700,8 @@
       return text ? text.slice(0, 6000) : null;
     };
     const descriptionParts = {
-      object: longText(pick(records, ["descriptionobject", "objdescription", "description"])),
+      // Only the collected description. The meta description is a teaser and must not stand in for the text.
+      object: longText(pick(records, ["descriptionobject", "objdescription"])),
       furnishing: longText(pick(records, ["descriptionfurnishing"])),
       location: longText(pick(records, ["descriptionlocation"])),
       other: longText(pick(records, ["descriptionother"])),
@@ -817,8 +820,9 @@
         portalMarketEurPerM2: positive(pick(records, ["portalmarketeurperm2"])),
         portalMarketLowEurPerM2: positive(pick(records, ["portalmarketloweurperm2"])),
         portalMarketHighEurPerM2: positive(pick(records, ["portalmarkethigheurperm2"])),
-        description: hasDescription ? descriptionParts : null,
-        details: detailPairs,
+        // Left out when nothing was found, so a page that failed to load a section never blanks what is stored.
+        ...(hasDescription ? { description: descriptionParts } : {}),
+        ...(detailPairs.length > 0 ? { details: detailPairs } : {}),
       },
     };
   }

@@ -146,6 +146,19 @@ describe("parseIngest details", () => {
     });
   });
 
+  it("reads only an ISO date as the listing date, and never guesses a dotted or slashed one", () => {
+    const read = (value: unknown) => {
+      const parsed = parseIngest({ title: "Dated", listedAt: value });
+      if (!parsed.ok) throw new Error("not ok");
+      return parsed.listing.listedAt;
+    };
+    expect(read("2026-10-30T16:50:15.585Z")).toBe("2026-10-30T16:50:15.585Z");
+    expect(read("2026-10-30")).toBe("2026-10-30T00:00:00.000Z");
+    expect(read("05.03.2024")).toBeNull();
+    expect(read("03/05/2024")).toBeNull();
+    expect(read("yesterday")).toBeNull();
+  });
+
   it("marks nothing as provided for a body from an older extension", () => {
     const parsed = parseIngest({ title: "Old", priceEur: 1 });
     expect(parsed.ok).toBe(true);

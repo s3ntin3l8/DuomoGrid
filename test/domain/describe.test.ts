@@ -55,4 +55,42 @@ describe("describeFindings", () => {
     expect(item?.amountEur).toBe(45300.5);
     expect(describeFindings(text("Instandhaltungsrücklage vorhanden."), 2026).items).toEqual([]);
   });
+
+  it("pairs a year with the verb in its own clause, not with a build year or a tenancy year", () => {
+    expect(describeFindings(text("Baujahr 1965, Bad 2015 saniert."), 2026).renovatedYear).toBe(2015);
+    expect(describeFindings(text("Baujahr 1970, Heizung 2010 erneuert."), 2026)).toMatchObject({ renovatedYear: null, heatingReplacedYear: 2010 });
+    expect(describeFindings(text("Die Wohnung ist saniert und seit 2021 vermietet."), 2026).renovatedYear).toBeNull();
+    expect(describeFindings(text("Das Bad wurde 2019 modernisiert, Heizung Gas."), 2026)).toMatchObject({ renovatedYear: 2019, heatingReplacedYear: null });
+  });
+
+  it("does not read a street, a spa or a long number as heating or a year", () => {
+    const found = describeFindings(text("Nähe Therme und Brenner Straße, Fenster erneuert 2020."), 2026);
+    expect(found.heatingReplacedYear).toBeNull();
+    expect(found.renovatedYear).toBe(2020);
+    expect(describeFindings(text("Bad erneuert für 20.000 EUR."), 2026).renovatedYear).toBeNull();
+  });
+
+  it("keeps the heating label and the year it reports in step", () => {
+    const found = describeFindings(text("Heizung erneuert 2005. Zweite Anlage: Heizkessel ausgetauscht 2018."), 2026);
+    expect(found.heatingReplacedYear).toBe(2018);
+    expect(found.items.find((item) => item.key === "heating_replaced")).toMatchObject({ label: "Heating renewed 2018", year: 2018 });
+  });
+
+  it("does not report a possibility or a plan as a fact, but still reports a risk", () => {
+    expect(keys("Für den Einbau einer Wärmepumpe geeignet. Fußbodenheizung nachrüstbar. Kernsanierung geplant.")).toEqual([]);
+    expect(keys("Eine Sonderumlage ist möglich.")).toEqual(["special_levy"]);
+  });
+
+  it("reads a KfW standard but not a KfW amount", () => {
+    expect(keys("KfW-Darlehen bis zu KfW 100.000 € möglich.")).toEqual([]);
+    expect(keys("Förderfähig als KfW 55.")).toEqual(["kfw_standard"]);
+  });
+
+  it("reads a reserve written with ca., and rejects a per-area or monthly figure and a tiny one", () => {
+    const item = describeFindings(text("Instandhaltungsrücklage von ca. 45.000 € vorhanden."), 2026).items[0];
+    expect(item).toMatchObject({ key: "maintenance_reserve", amountEur: 45000 });
+    expect(keys("Die Instandhaltungsrücklage beträgt 1,20 € pro m² im Jahr.")).toEqual([]);
+    expect(keys("Instandhaltungsrücklage: monatlich 30 € Zuführung.")).toEqual([]);
+    expect(keys("Instandhaltungsrücklage 120 € vorhanden.")).toEqual([]);
+  });
 });
