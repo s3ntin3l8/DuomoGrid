@@ -182,15 +182,37 @@ export async function listingsRoute(app: FastifyInstance) {
     return { priceMap: prices(), past: history(), model: assumptions() };
   }
 
+  const lookupInflight = new Map<string, Promise<ListingRow>>();
+  const lookupFailedUntil = new Map<string, number>();
+
+  function landValueCached(row: ListingRow) {
+    if (row.brwStatus === "none") return true;
+    if (row.brwStatus === "unpublished" && row.brwZone) return true;
+    return row.brwStatus === "published" && Boolean(row.brwZone) && row.brwEurPerM2 != null && row.brwEurPerM2 > 0;
+  }
+
   async function ensureBodenrichtwert(row: ListingRow): Promise<ListingRow> {
-    if (row.latitude == null || row.longitude == null || row.brwStatus != null) return row;
-    try {
-      const hit = await fetchBodenrichtwert(row.latitude, row.longitude);
-      app.db.update(listings).set(columnsFromHit(hit)).where(eq(listings.id, row.id)).run();
-      return app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0] ?? row;
-    } catch {
-      return row;
-    }
+    if (row.latitude == null || row.longitude == null || landValueCached(row)) return row;
+    const key = `${row.id}:${row.latitude}:${row.longitude}`;
+    const until = lookupFailedUntil.get(key);
+    if (until != null && Date.now() < until) return row;
+    const pending = lookupInflight.get(key);
+    if (pending) return pending;
+    const job = (async () => {
+      try {
+        const hit = await fetchBodenrichtwert(row.latitude as number, row.longitude as number);
+        lookupFailedUntil.delete(key);
+        app.db.update(listings).set(columnsFromHit(hit)).where(eq(listings.id, row.id)).run();
+        return app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0] ?? row;
+      } catch {
+        lookupFailedUntil.set(key, Date.now() + 30_000);
+        return row;
+      } finally {
+        lookupInflight.delete(key);
+      }
+    })();
+    lookupInflight.set(key, job);
+    return job;
   }
 
   app.get("/listings", async () => {

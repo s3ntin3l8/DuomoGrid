@@ -28,7 +28,7 @@ export const listings = sqliteTable("listings", {
   locationPrecision: text("location_precision"),
   brwStatus: text("brw_status"),
   brwZone: text("brw_zone"),
-  brwEurPerM2: integer("brw_eur_per_m2"),
+  brwEurPerM2: real("brw_eur_per_m2"),
   brwStichtag: text("brw_stichtag"),
   propertyType: text("property_type").notNull(),
   livingAreaM2: real("living_area_m2"),

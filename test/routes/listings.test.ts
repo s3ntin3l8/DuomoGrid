@@ -288,7 +288,25 @@ describe("listings", () => {
       expect(paywalled.json().analysis.score).toBe(score);
       expect(calls).toHaveLength(3);
 
+      body = "bodenrichtwertszonenname = Acker\nbodenrichtwert = 0,4\nstichtag = 01.01.2026\n";
+      await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { latitude: 48.8, longitude: 12.4 },
+      });
+      const decimal = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(decimal.json().bodenrichtwert).toEqual({
+        status: "published",
+        zone: "Acker",
+        eurPerM2: 0.4,
+        stichtag: "01.01.2026",
+      });
+      expect(decimal.json().analysis.score).toBe(score);
+
+      let failures = 0;
       globalThis.fetch = (async () => {
+        failures += 1;
         throw new Error("offline");
       }) as typeof fetch;
       const shifted = await app.inject({
@@ -302,6 +320,9 @@ describe("listings", () => {
       expect(failed.statusCode).toBe(200);
       expect(failed.json().bodenrichtwert.status).toBe("unknown");
       expect(failed.json().analysis.score).toBe(score);
+      const failedAgain = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(failedAgain.json().bodenrichtwert.status).toBe("unknown");
+      expect(failures).toBe(1);
 
       const cleared = await app.inject({
         method: "PATCH",

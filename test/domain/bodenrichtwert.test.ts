@@ -31,6 +31,11 @@ describe("Bodenrichtwert text", () => {
     expect(parseGermanLandValue("1.680")).toBe(1680);
     expect(parseGermanLandValue("1.100")).toBe(1100);
     expect(parseGermanLandValue("880")).toBe(880);
+    expect(parseGermanLandValue("1,3")).toBe(1.3);
+    expect(parseGermanLandValue("0,4")).toBe(0.4);
+    expect(parseGermanLandValue("2.000,50")).toBe(2000.5);
+    expect(parseGermanLandValue("0")).toBeNull();
+    expect(parseGermanLandValue("0,0")).toBeNull();
   });
 
   it("keeps a paywalled zone and does not turn the missing figure into zero", () => {
@@ -46,6 +51,18 @@ describe("Bodenrichtwert text", () => {
     });
     expect(parseGermanLandValue("0")).toBeNull();
     expect(parseGermanLandValue("Information gebührenpflichtig")).toBeNull();
+    expect(parseBodenrichtwert("bodenrichtwertszonenname = null\nbodenrichtwertnummer = 18\nbodenrichtwert = 570\nstichtag = 01.01.2026\n")).toEqual({
+      status: "published",
+      zone: "18",
+      eurPerM2: 570,
+      stichtag: "01.01.2026",
+    });
+    expect(parseBodenrichtwert("bodenrichtwertszonenname = Acker\nbodenrichtwert = 1,3\nstichtag = 01.01.2026\n")).toEqual({
+      status: "published",
+      zone: "Acker",
+      eurPerM2: 1.3,
+      stichtag: "01.01.2026",
+    });
   });
 
   it("treats an empty body as outside the layer", () => {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8a2c59c1-f472-498e-9307-17b2c91af0d4",
+  "id": "8c0ac093-10e5-4424-8014-9d547c687003",
   "prevId": "e3b8fb56-e15f-47b1-8525-c4b5f802ca40",
   "tables": {
     "listings": {
@@ -122,7 +122,7 @@
         },
         "brw_eur_per_m2": {
           "name": "brw_eur_per_m2",
-          "type": "integer",
+          "type": "real",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

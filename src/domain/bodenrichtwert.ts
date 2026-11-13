@@ -37,7 +37,7 @@ function field(block: string, key: string): string | null {
   return value;
 }
 
-/** German thousands (`2.000`, `1.680`) and a plain integer. Anything else, including 0, is not a value. */
+/** German thousands (`2.000`) and a decimal comma (`1,3`, `2.000,50`). Zero and anything that is not a number are not a value. */
 export function parseGermanLandValue(raw: string): number | null {
   const text = raw.trim();
   let normalized: string | null = null;
@@ -46,7 +46,7 @@ export function parseGermanLandValue(raw: string): number | null {
   if (normalized == null) return null;
   const value = Number(normalized);
   if (!Number.isFinite(value) || value <= 0) return null;
-  return Math.round(value);
+  return value;
 }
 
 export function parseBodenrichtwert(body: string): Bodenrichtwert {

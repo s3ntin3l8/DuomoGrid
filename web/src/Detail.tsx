@@ -175,6 +175,14 @@ export function Detail({
   );
 }
 
+function landDigits(value: number | null): number {
+  if (value == null) return 0;
+  const cents = Math.round(value * 100);
+  if (cents % 100 === 0) return 0;
+  if (cents % 10 === 0) return 1;
+  return 2;
+}
+
 function LandValue({ row, pending, miss }: { row: DeskListing; pending: boolean; miss: boolean }) {
   const land = row.bodenrichtwert;
   if (land?.status === "published" || land?.status === "unpublished") {
@@ -186,7 +194,7 @@ function LandValue({ row, pending, miss }: { row: DeskListing; pending: boolean;
         </p>
         <p>
           Zone {land.zone}
-          {land.status === "published" ? ` · ${eur(land.eurPerM2)} / m² of land` : " · value not published"}
+          {land.status === "published" ? ` · ${eur(land.eurPerM2, landDigits(land.eurPerM2))} / m² of land` : " · value not published"}
           {land.stichtag ? ` · as of ${land.stichtag}` : ""}
         </p>
         <p className="meta">
