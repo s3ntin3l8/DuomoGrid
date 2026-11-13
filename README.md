@@ -12,7 +12,7 @@ cp .env.example .env
 docker compose pull && docker compose up -d
 ```
 
-To build from source instead, uncomment the `build:` block in `docker-compose.yml` and run `docker compose up -d --build`. For a reverse proxy (Traefik, Authentik), write a `docker-compose.override.yml` (gitignored) that drops the published port with `ports: !reset []`, joins your proxy network and adds your Traefik labels. Also set `TRUST_PROXY` in `.env` to the proxy network's CIDR, or rate limiting sees every client as the proxy's IP (see `.env.example`).
+To build from source instead, uncomment the `build:` block in `docker-compose.yml` and run `docker compose up -d --build`. For a reverse proxy (Traefik, Authentik), write a `docker-compose.override.yml` (gitignored) that drops the published port with `ports: !reset []`, joins your proxy network and adds your Traefik labels. Split the routing in two: `/listings` and `/assumptions` must bypass forward-auth (the extension cannot follow an SSO redirect; they are gated by the bearer token), while everything else, the desk and the unguarded example `/users`, must sit behind your forward-auth middleware, because the desk is otherwise published unauthenticated. Set `traefik.docker.network` to the proxy network and the service port to 3000. Also set `TRUST_PROXY` in `.env` to the proxy network's CIDR, or rate limiting sees every client as the proxy's IP (see `.env.example`).
 
 The API listens on port 3000. After `npm run build`, that same port serves the desk. `GET /health` is the liveness check. Listing routes require `Authorization: Bearer $INGEST_TOKEN`.
 
