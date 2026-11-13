@@ -3,7 +3,7 @@ import path from "node:path";
 import Fastify from "fastify";
 import sensible from "@fastify/sensible";
 import fastifyStatic from "@fastify/static";
-import { envPlugin } from "./plugins/env.js";
+import { envPlugin, parseTrustProxy } from "./plugins/env.js";
 import { loggingPlugin } from "./plugins/logging.js";
 import { securityPlugin } from "./plugins/security.js";
 import { dbPlugin } from "./plugins/db.js";
@@ -18,6 +18,9 @@ export async function buildApp() {
     logger: {
       level: process.env.LOG_LEVEL || "info",
     },
+    // Fastify fixes this at construction, before the env plugin runs, so it is
+    // read from process.env like LOG_LEVEL. Set it in the container environment.
+    trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   });
 
   await app.register(envPlugin);

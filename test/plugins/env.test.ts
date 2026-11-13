@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { buildApp } from "../../src/app.js";
+import { parseTrustProxy } from "../../src/plugins/env.js";
 
 describe("env plugin", () => {
   afterEach(async () => {
@@ -35,5 +36,31 @@ describe("env plugin", () => {
     expect(app.config.PORT).toBe(4000);
     expect(app.config.LOG_LEVEL).toBe("debug");
     await app.close();
+  });
+});
+
+describe("parseTrustProxy", () => {
+  it("is off when unset, empty or false", () => {
+    expect(parseTrustProxy(undefined)).toBe(false);
+    expect(parseTrustProxy("")).toBe(false);
+    expect(parseTrustProxy(" False ")).toBe(false);
+  });
+
+  it("parses true, hop counts and address lists", () => {
+    expect(parseTrustProxy("true")).toBe(true);
+    expect(parseTrustProxy("10.0.0.1, 172.18.0.0/16")).toEqual(["10.0.0.1", "172.18.0.0/16"]);
+    expect(parseTrustProxy("loopback")).toEqual(["loopback"]);
+    expect(parseTrustProxy("10.0.0.0/255.0.0.0")).toEqual(["10.0.0.0/255.0.0.0"]);
+  });
+
+  it("turns a hop count into a function that trusts that many hops", () => {
+    const fn = parseTrustProxy("2") as (addr: string, hop: number) => boolean;
+    expect([fn("a", 0), fn("a", 1), fn("a", 2)]).toEqual([true, true, false]);
+  });
+
+  it("rejects invalid values with a TRUST_PROXY message", () => {
+    for (const bad of [",", " , ", "ture", "10.0.0.0/33", "10.0.0.1/x", "1.2.3"]) {
+      expect(() => parseTrustProxy(bad)).toThrow(/TRUST_PROXY/);
+    }
   });
 });

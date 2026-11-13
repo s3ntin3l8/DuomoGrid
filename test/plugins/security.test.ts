@@ -5,6 +5,7 @@ describe("security plugin", () => {
   afterEach(() => {
     delete process.env.RATE_LIMIT_MAX;
     delete process.env.CORS_ORIGIN;
+    delete process.env.TRUST_PROXY;
   });
 
   it("sets security headers from helmet", async () => {
@@ -42,5 +43,43 @@ describe("security plugin", () => {
     });
     expect(res.headers["access-control-allow-origin"]).toBe("https://app.example.com");
     await app.close();
+  });
+
+  describe("TRUST_PROXY", () => {
+    const hit = (app: Awaited<ReturnType<typeof buildApp>>, xff: string) =>
+      app.inject({
+        method: "GET",
+        url: "/health",
+        remoteAddress: "10.0.0.1",
+        headers: { "x-forwarded-for": xff },
+      });
+
+    it("ignores X-Forwarded-For by default so a client cannot spoof its IP", async () => {
+      process.env.RATE_LIMIT_MAX = "1";
+      const app = await buildApp();
+      expect((await hit(app, "1.1.1.1")).statusCode).toBe(200);
+      expect((await hit(app, "2.2.2.2")).statusCode).toBe(429);
+      await app.close();
+    });
+
+    it("honours a hop count end to end", async () => {
+      process.env.RATE_LIMIT_MAX = "1";
+      process.env.TRUST_PROXY = "1";
+      const app = await buildApp();
+      expect((await hit(app, "1.1.1.1")).statusCode).toBe(200);
+      expect((await hit(app, "2.2.2.2")).statusCode).toBe(200);
+      expect((await hit(app, "1.1.1.1")).statusCode).toBe(429);
+      await app.close();
+    });
+
+    it("rate-limits per forwarded client IP when set", async () => {
+      process.env.RATE_LIMIT_MAX = "1";
+      process.env.TRUST_PROXY = "10.0.0.1";
+      const app = await buildApp();
+      expect((await hit(app, "1.1.1.1")).statusCode).toBe(200);
+      expect((await hit(app, "2.2.2.2")).statusCode).toBe(200);
+      expect((await hit(app, "1.1.1.1")).statusCode).toBe(429);
+      await app.close();
+    });
   });
 });
