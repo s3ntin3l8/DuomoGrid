@@ -92,6 +92,8 @@ textarea { min-height: 96px; resize: vertical; }
 }
 .item strong { font-weight: 600; }
 .item small, .meta { color: var(--muted); }
+.item small.down { color: var(--good); }
+.item small.up { color: var(--warn); }
 .item.on { background: var(--cedar-soft); border-left-color: var(--cedar); }
 .item .check { grid-row: 1 / span 3; align-self: center; }
 .pick { display: flex; gap: 8px; align-items: flex-start; }

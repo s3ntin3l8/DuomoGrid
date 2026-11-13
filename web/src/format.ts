@@ -21,6 +21,20 @@ export function area(value: number | null | undefined): string {
   return `${num(value, value % 1 === 0 ? 0 : 1)} m²`;
 }
 
+export function priceMove(observations: { priceEur: number | null }[]): number | null {
+  const current = observations[0]?.priceEur;
+  const previous = observations[1]?.priceEur;
+  if (current == null || previous == null || !(previous > 0) || current === previous) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+export function moveLabel(change: number | null): string | null {
+  if (change == null || !Number.isFinite(change)) return null;
+  const rounded = Math.round(change);
+  if (rounded === 0) return null;
+  return rounded > 0 ? `+${rounded}%` : `−${Math.abs(rounded)}%`;
+}
+
 export function when(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;

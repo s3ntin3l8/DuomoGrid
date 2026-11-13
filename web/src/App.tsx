@@ -17,9 +17,21 @@ import {
 import { AssumptionsForm } from "./Assumptions";
 import { Compare } from "./Compare";
 import { Detail } from "./Detail";
-import { eur, statusLabel } from "./format";
+import { eur, moveLabel, priceMove, statusLabel } from "./format";
 
 const ListingMap = lazy(() => import("./Map").then((mod) => ({ default: mod.ListingMap })));
+
+function PriceMove({ row }: { row: DeskListing }) {
+  const buy = row.listing.offer === "buy";
+  const perM2 = buy ? row.analysis.pricePerLivingM2 : row.analysis.rentPerM2;
+  const figure = perM2 != null ? `${eur(perM2, buy ? 0 : 2)} / m²` : null;
+  const change = priceMove(row.observations);
+  const moved = moveLabel(change);
+  const text = [figure, moved].filter(Boolean).join(" · ");
+  if (!text) return null;
+  const tone = moved == null || change == null ? undefined : change < 0 ? "down" : "up";
+  return <small className={tone}>{text}</small>;
+}
 
 type OfferFilter = "all" | "buy" | "rent";
 type Mode = "detail" | "compare" | "assumptions" | "map";
@@ -187,6 +199,7 @@ export function App() {
                   {[row.listing.city, row.listing.offer === "buy" ? "Buy" : "Rent"].filter(Boolean).join(" · ")}
                 </small>
                 <small>{eur(row.listing.priceEur)}</small>
+                <PriceMove row={row} />
               </button>
             </div>
           ))}
