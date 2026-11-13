@@ -1,4 +1,6 @@
 import { annuityMonthly, lookupBenchmark, resolveState, roundEuro, stateById } from "./reference.js";
+import type { Bodenrichtwert } from "./bodenrichtwert.js";
+import type { DistrictSaleBand } from "./district-band.js";
 import type { Assumptions, Flag, ListingInput, Subscore } from "./types.js";
 
 export type Analysis = {
@@ -80,7 +82,86 @@ function isOilOrStorage(heating: string | null): boolean {
   return text.includes("öl") || text.includes("oel") || text.includes("oil") || text.includes("nacht") || text.includes("night-storage") || text.includes("storage heater");
 }
 
-export function analyze(listing: ListingInput, assumptions: Assumptions): Analysis {
+function figure(value: number): string {
+  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
+}
+
+function bandRange(band: string): { floor: number | null; ceiling: number | null } | null {
+  const text = band.trim();
+  const bounded = text.match(/^(\d+)\s+bis unter\s+(\d+)$/);
+  if (bounded) {
+    const floor = Number(bounded[1]);
+    const ceiling = Number(bounded[2]);
+    if (floor > 0 && ceiling > floor) return { floor, ceiling };
+    return null;
+  }
+  const open = text.match(/^(\d+)\s+und mehr$/);
+  if (open) {
+    const floor = Number(open[1]);
+    return floor > 0 ? { floor, ceiling: null } : null;
+  }
+  const under = text.match(/^bis unter\s+(\d+)$/);
+  if (under) {
+    const ceiling = Number(under[1]);
+    return ceiling > 0 ? { floor: null, ceiling } : null;
+  }
+  return null;
+}
+
+function landValueFlag(
+  buy: boolean,
+  listing: ListingInput,
+  price: number | null,
+  pricePerLivingM2: number | null,
+  land: Bodenrichtwert | null | undefined,
+): Flag | null {
+  if (!buy || price == null || price <= 0 || !land || land.status !== "published" || !(land.eurPerM2 > 0)) return null;
+  const eur = land.eurPerM2;
+  const zone = land.zone ? ` (${land.zone})` : "";
+  const plot = listing.plotAreaM2;
+  if (plot != null && plot > 0) {
+    const total = eur * plot;
+    const living = pricePerLivingM2 != null ? `, ${figure(pricePerLivingM2)} EUR/m2 of living area` : "";
+    const detail = `The Bodenrichtwert is ${figure(eur)} EUR/m2 of land${zone}, about ${figure(roundEuro(total))} EUR for this ${figure(plot)} m2 plot. The asking price is ${figure(roundEuro(price))} EUR${living}. This compares the two totals in EUR. It does not compare the land value with the price per m2 of living area.`;
+    if (price < total) return { severity: "good", title: "Asking price is under the plot's land value", detail };
+    return { severity: "info", title: "Asking price against the Bodenrichtwert", detail };
+  }
+  if (pricePerLivingM2 == null) {
+    return {
+      severity: "info",
+      title: "Bodenrichtwert is a land value",
+      detail: `The Bodenrichtwert is ${figure(eur)} EUR/m2 of land${zone}. The asking price is ${figure(roundEuro(price))} EUR. There is no plot area, so this is not a comparison of two totals.`,
+    };
+  }
+  return {
+    severity: "info",
+    title: "Bodenrichtwert is a land value",
+    detail: `The Bodenrichtwert is ${figure(eur)} EUR/m2 of land${zone}. The asking price is ${figure(pricePerLivingM2)} EUR/m2 of living area. These are not the same unit.`,
+  };
+}
+
+function districtBandFlag(
+  buy: boolean,
+  listing: ListingInput,
+  pricePerLivingM2: number | null,
+  band: DistrictSaleBand | null | undefined,
+): Flag | null {
+  if (!buy || !band || pricePerLivingM2 == null || !(pricePerLivingM2 > 0)) return null;
+  // matchDistrictBand already ties kind to propertyType. Refuse a hand-built mismatch anyway.
+  if (band.kind !== listing.propertyType) return null;
+  const range = bandRange(band.band);
+  if (!range) return null;
+  const kind = band.kind === "apartment" ? "used apartments" : "detached and semi-detached houses";
+  const detail = `Asking price is ${figure(pricePerLivingM2)} EUR/m2 of living area. The district sale band for ${kind} in ${band.name} (${band.year}) is "${band.band}". This is not the value of this building.`;
+  if (range.floor != null && pricePerLivingM2 < range.floor) return { severity: "good", title: "Below the district sale band", detail };
+  if (range.ceiling != null && pricePerLivingM2 >= range.ceiling) return { severity: "warn", title: "Above the district sale band", detail };
+  return { severity: "info", title: "Inside the district sale band", detail };
+}
+
+export function analyze(listing: ListingInput, assumptions: Assumptions, market: {
+  bodenrichtwert?: Bodenrichtwert | null;
+  districtSaleBand?: DistrictSaleBand | null;
+} = {}): Analysis {
   const state = resolveState(listing, assumptions);
   const stateInfo = stateById(state.id);
   const buy = listing.offer === "buy";
@@ -221,6 +302,10 @@ export function analyze(listing: ListingInput, assumptions: Assumptions): Analys
   if (/zwangsversteigerung|foreclosure/i.test(`${listing.title} ${listing.snippet}`)) {
     flags.push({ severity: "warn", title: "Foreclosure auction", detail: "Viewing, vacancy, and the bidding process are not a normal purchase contract." });
   }
+  const landFlag = landValueFlag(buy, listing, price, pricePerLivingM2, market.bodenrichtwert);
+  if (landFlag) flags.push(landFlag);
+  const bandFlag = districtBandFlag(buy, listing, pricePerLivingM2, market.districtSaleBand);
+  if (bandFlag) flags.push(bandFlag);
 
   const energyApplicable = listing.propertyType !== "land" && buy;
   let energyScore = 35;

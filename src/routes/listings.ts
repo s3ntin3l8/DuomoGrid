@@ -122,6 +122,13 @@ function bodenrichtwertView(row: ListingRow) {
   return { status: "unknown" as const, zone: null, eurPerM2: null, stichtag: null };
 }
 
+function asBodenrichtwert(view: ReturnType<typeof bodenrichtwertView>): Bodenrichtwert | null {
+  if (!view || view.status === "unknown") return null;
+  if (view.status === "none") return { status: "none" };
+  if (view.status === "unpublished") return { status: "unpublished", zone: view.zone, stichtag: view.stichtag };
+  return { status: "published", zone: view.zone, eurPerM2: view.eurPerM2, stichtag: view.stichtag };
+}
+
 export async function listingsRoute(app: FastifyInstance) {
   installIngestGuard(app, "/listings");
 
@@ -158,7 +165,15 @@ export async function listingsRoute(app: FastifyInstance) {
   function present(row: ListingRow, priceMap: Map<string, number | null>, past: Map<string, { seenAt: string; priceEur: number | null }[]>, model: Assumptions) {
     const priceEur = priceMap.get(row.id) ?? null;
     const input = asInput(row, priceEur);
-    const analysis = analyze(input, model);
+    const districtSaleBand = districtSaleBandFor({
+      offer: row.offer,
+      propertyType: row.propertyType,
+      city: row.city,
+      district: row.district,
+      state: row.state,
+    });
+    const bodenrichtwert = bodenrichtwertView(row);
+    const analysis = analyze(input, model, { bodenrichtwert: asBodenrichtwert(bodenrichtwert), districtSaleBand });
     const everyone = app.db
       .select()
       .from(listings)
@@ -175,14 +190,8 @@ export async function listingsRoute(app: FastifyInstance) {
       observations: past.get(row.id) ?? [],
       cohort: cohortSummary(subject, everyone),
       rentComparison: rentAgainstBuy({ ...subject, monthlyCarryingEur: analysis.monthlyTotal }, everyone),
-      bodenrichtwert: bodenrichtwertView(row),
-      districtSaleBand: districtSaleBandFor({
-        offer: row.offer,
-        propertyType: row.propertyType,
-        city: row.city,
-        district: row.district,
-        state: row.state,
-      }),
+      bodenrichtwert,
+      districtSaleBand,
     };
   }
 
