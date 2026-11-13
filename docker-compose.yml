@@ -12,7 +12,8 @@
 #  this file automatically. Template: docker-compose.override.example.yml.
 #  Keep this file generic.
 #
-#  Pinning: change `:latest` to a specific version (e.g. `:1.0.0`). Tags:
+#  Image tags: `:edge` is rebuilt on every push to main. `:latest` and `:vX.Y.Z`
+#  only exist after the first release-please release; pin one then. Tags:
 #  https://github.com/s3ntin3l8/duomogrid/pkgs/container/duomogrid
 #
 #  Build from source instead of pulling: uncomment the `build:` block below
@@ -20,11 +21,10 @@
 
 services:
   api:
-    image: ghcr.io/s3ntin3l8/duomogrid:latest
+    image: ghcr.io/s3ntin3l8/duomogrid:edge
     # build:
     #   context: .
     #   dockerfile: Dockerfile
-    container_name: duomogrid
     ports:
       - "3000:3000"
     env_file:
