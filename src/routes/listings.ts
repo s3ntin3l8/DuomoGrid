@@ -38,7 +38,7 @@ function asInput(row: ListingRow, priceEur: number | null): ListingInput {
     street: row.street,
     latitude: row.latitude,
     longitude: row.longitude,
-    locationPrecision: row.locationPrecision === "exact" ? "exact" : null,
+    locationPrecision: precisionOf(row.locationPrecision),
     propertyType: row.propertyType as PropertyType,
     yearBuilt: row.yearBuilt,
     yearRefurbished: row.yearRefurbished,
@@ -81,6 +81,10 @@ type BrwColumns = {
   brwEurPerM2: number | null;
   brwStichtag: string | null;
 };
+
+function precisionOf(value: string | null): "exact" | "approximate" | null {
+  return value === "exact" || value === "approximate" ? value : null;
+}
 
 function samePoint(leftLat: number | null, leftLng: number | null, rightLat: number | null, rightLng: number | null) {
   if (leftLat == null || leftLng == null || rightLat == null || rightLng == null) return false;
@@ -372,7 +376,7 @@ export async function listingsRoute(app: FastifyInstance) {
     if (wantsClear && wantsMove) return reply.code(400).send({ error: "Send a point or clearPoint, not both." });
     let latitude = row.latitude;
     let longitude = row.longitude;
-    let locationPrecision = row.locationPrecision === "exact" ? "exact" : null;
+    let locationPrecision: "exact" | "approximate" | null = precisionOf(row.locationPrecision);
     if (wantsClear) {
       latitude = null;
       longitude = null;
@@ -449,7 +453,11 @@ export async function listingsRoute(app: FastifyInstance) {
       return Boolean(listing.sourceUrl && listing.sourceUrl.length > 8 && row.sourceUrl === listing.sourceUrl);
     });
     const id = existing?.id ?? crypto.randomUUID();
-    const located = listing.latitude != null && listing.longitude != null;
+    const incoming = listing.latitude != null && listing.longitude != null;
+    // An approximate point from the portal never replaces a stored exact one (dragged or corrected by hand).
+    const keepsExact = incoming && listing.locationPrecision === "approximate" && existing?.locationPrecision === "exact"
+      && existing.latitude != null && existing.longitude != null;
+    const located = incoming && !keepsExact;
     const nextLatitude = located ? listing.latitude : (existing?.latitude ?? null);
     const nextLongitude = located ? listing.longitude : (existing?.longitude ?? null);
     const brw = existing && samePoint(existing.latitude, existing.longitude, nextLatitude, nextLongitude) ? keptBrw(existing) : clearedBrw();
@@ -467,7 +475,7 @@ export async function listingsRoute(app: FastifyInstance) {
       street: listing.street ?? existing?.street ?? null,
       latitude: nextLatitude,
       longitude: nextLongitude,
-      locationPrecision: located ? "exact" : (existing?.locationPrecision === "exact" ? "exact" : null),
+      locationPrecision: located ? (listing.locationPrecision === "approximate" ? "approximate" : "exact") : precisionOf(existing?.locationPrecision ?? null),
       propertyType: listing.propertyType,
       livingAreaM2: listing.livingAreaM2,
       plotAreaM2: listing.plotAreaM2,

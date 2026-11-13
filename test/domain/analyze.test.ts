@@ -173,6 +173,18 @@ describe("asking-price flags", () => {
     }
   });
 
+  it("never calls an asking price good against a land value taken from an approximate point", () => {
+    const approximate = listing({ ...buy, locationPrecision: "approximate" });
+    const result = analyze(approximate, assumptions, { bodenrichtwert: published });
+    expect(result.flags.some((flag) => flag.severity === "good" && /land value/i.test(flag.title))).toBe(false);
+    const named = result.flags.find((flag) => flag.title === "Asking price against the Bodenrichtwert");
+    expect(named?.severity).toBe("info");
+    expect(named?.detail).toContain("approximate");
+    expect(result.score).toBe(analyze(approximate, assumptions).score);
+    const exact = analyze(listing({ ...buy, locationPrecision: "exact" }), assumptions, { bodenrichtwert: published });
+    expect(exact.flags.find((flag) => flag.title === "Asking price is under the plot's land value")?.severity).toBe("good");
+  });
+
   it("names a published Bodenrichtwert without treating it as the living-area price", () => {
     const plain = analyze(buy, assumptions);
     const withPlot = analyze(buy, assumptions, { bodenrichtwert: published });

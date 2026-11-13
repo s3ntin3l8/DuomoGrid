@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ignored title</title>
+    <!-- Mirrors the current ImmoScout24 exposé: one script holds IS24.expose (JS literals with JSON inside) and keyValues. -->
+    <script>
+      window.IS24 = window.IS24 || {};
+      IS24.expose = {
+        purchasePrice: "300000",
+        galleryData: {"images":[],"videos":[]},
+        locationAddress: { geoCode: "1", city: "Testdorf", zip: "80000", isFullAddress: false, houseNumber: undefined, street: undefined, qualifiedGeoIds: {} },
+        features: { enableSomething: true },
+        pageData: {"exposeMap":{"googleApiKey":"decoy","exposeType":"APARTMENT_BUY","location":{"quarterBoundsJson":{"southWest":{"latitude":48.0,"longitude":11.0},"northEast":{"latitude":49.0,"longitude":12.0}},"isInternational":false,"latitude":48.5,"coordinateAvailable":true,"showFullAddress":false,"longitude":11.5}},
+          "exposeContent":{"aiSummary":null,"furnishingDescription":"Parkett","objectDescription":"Ruhige Wohnung im Testdorf. Nicht vermietet, sofort frei."}}
+      };
+      keyValues = {"obj_regio1":"Bayern","obj_regio2":"Beispiel_Kreis","obj_regio3":"Testdorf","obj_zipCode":"80000","obj_street":"no_information","obj_houseNumber":"no_information","obj_condition":"no_information","obj_courtage":"y","obj_energyType":"energy_required","obj_energyEfficiencyClass":"B","obj_thermalChar":"62.5","obj_purchasePrice":"300000","obj_livingSpace":"80.5","obj_noRooms":"3","obj_immotype":"wohnung_kauf","obj_scoutId":"999002","obj_yearConstructed":"1999"};
+    </script>
+  </head>
+  <body>
+    <h1>Testdorf apartment</h1>
+    <main>
+      <dl><dt>Provision für Käufer</dt><dd>siehe Sonstiges</dd></dl>
+    </main>
+  </body>
+</html>

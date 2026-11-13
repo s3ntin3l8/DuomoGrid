@@ -814,4 +814,109 @@ describe("listings", () => {
     expect(row?.latitude).toBe(48.537);
     await app.close();
   });
+
+  it("keeps a point the user placed when a later save carries only an approximate one", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const payload = {
+      v: 1,
+      source: "immowelt",
+      sourceUrl: "https://www.immowelt.de/expose/aaaa",
+      externalId: "aaaa",
+      title: "Hepberg",
+      priceEur: 319000,
+      livingAreaM2: 100,
+      city: "Hepberg",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+      latitude: 48.8,
+      longitude: 11.46,
+      locationPrecision: "approximate",
+    };
+    const first = await app.inject({ method: "POST", url: "/listings", headers, payload });
+    expect(first.statusCode).toBe(201);
+    expect(first.json().listing.locationPrecision).toBe("approximate");
+    const id = first.json().id as string;
+
+    // An approximate point may be replaced by a newer approximate one.
+    const nudged = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...payload, latitude: 48.81 } });
+    expect(nudged.json().listing.latitude).toBe(48.81);
+    expect(nudged.json().listing.locationPrecision).toBe("approximate");
+
+    // Dragging the pin makes it exact.
+    const dragged = await app.inject({ method: "PATCH", url: `/listings/${id}`, headers, payload: { latitude: 48.83, longitude: 11.47 } });
+    expect(dragged.json().listing.locationPrecision).toBe("exact");
+
+    // A re-save from the portal must not undo that.
+    const resaved = await app.inject({ method: "POST", url: "/listings", headers, payload });
+    expect(resaved.statusCode).toBe(200);
+    expect(resaved.json().listing.latitude).toBe(48.83);
+    expect(resaved.json().listing.longitude).toBe(11.47);
+    expect(resaved.json().listing.locationPrecision).toBe("exact");
+
+    // An exact point from the portal still replaces it.
+    const exact = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: { ...payload, latitude: 48.9, longitude: 11.5, locationPrecision: "exact" },
+    });
+    expect(exact.json().listing.latitude).toBe(48.9);
+    expect(exact.json().listing.locationPrecision).toBe("exact");
+    await app.close();
+  });
+
+  it("handles precision across saves: first save, old extensions, and a pin move with a cached land value", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const payload = {
+      source: "immobilienscout24",
+      sourceUrl: "https://www.immobilienscout24.de/expose/7",
+      externalId: "7",
+      title: "Koesching",
+      priceEur: 549000,
+      livingAreaM2: 128,
+      city: "Kösching",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+      latitude: 48.815,
+      longitude: 11.509,
+      locationPrecision: "approximate",
+    };
+    const first = await app.inject({ method: "POST", url: "/listings", headers, payload });
+    expect(first.json().listing.locationPrecision).toBe("approximate");
+    const id = first.json().id as string;
+    const cache = { brwStatus: "published", brwZone: "Zone", brwEurPerM2: 2000, brwStichtag: "01.01.2026" };
+    app.db.update(listings).set(cache).where(eq(listings.id, id)).run();
+
+    // The same point again keeps the cached land value.
+    await app.inject({ method: "POST", url: "/listings", headers, payload });
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.brwStatus).toBe("published");
+
+    // A different approximate point clears it.
+    await app.inject({ method: "POST", url: "/listings", headers, payload: { ...payload, latitude: 48.82 } });
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.brwStatus).toBeNull();
+
+    // An older extension sends no precision, so its point is trusted as exact and replaces the approximate one.
+    const { locationPrecision: _dropped, ...old } = payload;
+    const relabelled = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...old, latitude: 48.83 } });
+    expect(relabelled.json().listing.locationPrecision).toBe("exact");
+    expect(relabelled.json().listing.latitude).toBe(48.83);
+
+    // Moving an approximate pin with PATCH flips it to exact and clears the cached land value together.
+    await app.inject({ method: "DELETE", url: `/listings/${id}`, headers });
+    const again = await app.inject({ method: "POST", url: "/listings", headers, payload });
+    const id2 = again.json().id as string;
+    app.db.update(listings).set(cache).where(eq(listings.id, id2)).run();
+    const moved = await app.inject({ method: "PATCH", url: `/listings/${id2}`, headers, payload: { latitude: 48.9, longitude: 11.6 } });
+    expect(moved.json().listing.locationPrecision).toBe("exact");
+    const row = app.db.select().from(listings).where(eq(listings.id, id2)).all()[0];
+    expect(row?.brwStatus).toBeNull();
+    expect(row?.brwEurPerM2).toBeNull();
+    await app.close();
+  });
 });

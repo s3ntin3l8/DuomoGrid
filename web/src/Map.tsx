@@ -8,6 +8,23 @@ maplibregl.setWorkerUrl(workerUrl);
 
 const STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
+const EXACT_COLOR = "#9c4228";
+const APPROXIMATE_COLOR = "#8b8b8b";
+
+/** A DOM node, not HTML: the title is listing text as published. */
+function popupNode(title: string, approximate: boolean): HTMLElement {
+  const node = document.createElement("div");
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  node.append(heading);
+  if (approximate) {
+    const note = document.createElement("div");
+    note.textContent = "Approximate location. Drag the pin to the building.";
+    node.append(note);
+  }
+  return node;
+}
+
 function placed(rows: DeskListing[]) {
   return rows.filter((row) => row.listing.latitude != null && row.listing.longitude != null);
 }
@@ -24,6 +41,7 @@ export function ListingMap({
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markers = useRef(new Map<string, maplibregl.Marker>());
+  const precisions = useRef(new Map<string, boolean>());
   const fitted = useRef("");
   const onOpenRef = useRef(onOpen);
   const onMoveRef = useRef(onMove);
@@ -54,6 +72,7 @@ export function ListingMap({
       gone = true;
       markers.current.forEach((marker) => marker.remove());
       markers.current.clear();
+      precisions.current.clear();
       map.remove();
       mapRef.current = null;
     };
@@ -69,6 +88,7 @@ export function ListingMap({
         if (!ids.has(id)) {
           marker.remove();
           markers.current.delete(id);
+          precisions.current.delete(id);
         }
       }
       for (const row of pins) {
@@ -76,12 +96,20 @@ export function ListingMap({
         const longitude = row.listing.longitude;
         if (latitude == null || longitude == null) continue;
         const next: [number, number] = [longitude, latitude];
+        const approximate = row.listing.locationPrecision === "approximate";
         let marker = markers.current.get(row.id);
+        // The colour is fixed when a marker is made, so a pin that became exact is replaced.
+        if (marker && precisions.current.get(row.id) !== approximate) {
+          marker.remove();
+          markers.current.delete(row.id);
+          marker = undefined;
+        }
         if (!marker) {
           const id = row.id;
-          marker = new maplibregl.Marker({ draggable: true, color: "#9c4228" })
+          precisions.current.set(id, approximate);
+          marker = new maplibregl.Marker({ draggable: true, color: approximate ? APPROXIMATE_COLOR : EXACT_COLOR })
             .setLngLat(next)
-            .setPopup(new maplibregl.Popup({ closeButton: false, offset: 24 }).setText(row.listing.title))
+            .setPopup(new maplibregl.Popup({ closeButton: false, offset: 24 }).setDOMContent(popupNode(row.listing.title, approximate)))
             .addTo(map);
           marker.getElement().addEventListener("click", () => onOpenRef.current(id));
           marker.on("dragend", () => {
@@ -100,7 +128,7 @@ export function ListingMap({
         } else {
           const at = marker.getLngLat();
           if (Math.abs(at.lat - latitude) > 1e-8 || Math.abs(at.lng - longitude) > 1e-8) marker.setLngLat(next);
-          marker.getPopup()?.setText(row.listing.title);
+          marker.getPopup()?.setDOMContent(popupNode(row.listing.title, approximate));
         }
       }
       const key = pins.map((row) => row.id).sort().join(",");
@@ -129,7 +157,7 @@ export function ListingMap({
   const missing = rows.length - placed(rows).length;
   return (
     <section className="map-panel">
-      <p className="meta">Drag a pin to correct the building. Only stored points are shown.</p>
+      <p className="meta">Drag a pin to correct the building. Grey pins are approximate: the portal does not publish the address. Only stored points are shown.</p>
       <p className="meta">Basemap tiles are requested from OpenFreeMap for the area in view. The listings themselves stay on this machine.</p>
       {unavailable ? <p className="error">Map unavailable. {unavailable}</p> : null}
       <div ref={host} className="map-canvas" />
