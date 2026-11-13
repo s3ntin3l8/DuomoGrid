@@ -168,6 +168,17 @@ describe("extract a saved exposé document", () => {
     expect(unavailable.listing).toMatchObject({ latitude: null, longitude: null, locationPrecision: null });
   });
 
+  it("does not read the next object when locationAddress is null", () => {
+    const html = `<!doctype html><html><head><script>
+      IS24.expose = {locationAddress: null, other: {city: "Wrongtown"}};
+      keyValues = {"obj_regio2":"Beispiel_Kreis","obj_regio3":"Realdorf","obj_purchasePrice":"1","obj_scoutId":"6"};
+    </script></head><body><h1>x</h1></body></html>`;
+    const result = extractHtml(html, "https://www.immobilienscout24.de/expose/6");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.listing.city).toBe("Realdorf");
+  });
+
   it("rejects a results page", () => {
     const result = extract(
       "./fixtures/synthetic-expose.html",

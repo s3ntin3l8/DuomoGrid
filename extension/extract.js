@@ -393,7 +393,11 @@
         record.locationPrecision = location.showFullAddress === true ? "exact" : "approximate";
       }
     }
-    const address = assignedSource(blob, "locationAddress");
+    // `locationAddress: null` must not make the scan pick up whatever object comes next.
+    const addressAt = blob.indexOf("locationAddress");
+    const address = addressAt >= 0 && /^locationAddress"?\s*:\s*\{/.test(blob.slice(addressAt, addressAt + 40))
+      ? assignedSource(blob, "locationAddress")
+      : null;
     if (address) {
       const text = (name) => {
         const match = address.match(new RegExp(`\\b${name}:\\s*"([^"]{0,120})"`));
