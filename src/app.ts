@@ -20,8 +20,7 @@ export async function buildApp() {
     },
     // Fastify fixes this at construction, before the env plugin runs, so it is
     // read from process.env like LOG_LEVEL. Set it in the container environment.
-    // A hop count is supported at runtime but missing from Fastify's type.
-    trustProxy: parseTrustProxy(process.env.TRUST_PROXY) as boolean | string[],
+    trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   });
 
   await app.register(envPlugin);

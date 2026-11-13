@@ -12,7 +12,7 @@ cp .env.example .env
 docker compose pull && docker compose up -d
 ```
 
-To build from source instead, uncomment the `build:` block in `docker-compose.yml` and run `docker compose up -d --build`. For a reverse proxy (Traefik, Authentik), copy `docker-compose.override.example.yml` to `docker-compose.override.yml` and edit it; that file is gitignored.
+To build from source instead, uncomment the `build:` block in `docker-compose.yml` and run `docker compose up -d --build`. For a reverse proxy (Traefik, Authentik), copy `docker-compose.override.example.yml` to `docker-compose.override.yml` and edit it; that file is gitignored. Also set `TRUST_PROXY` in `.env` to the proxy network's CIDR, or rate limiting sees every client as the proxy's IP (see `.env.example`).
 
 The API listens on port 3000. After `npm run build`, that same port serves the desk. `GET /health` is the liveness check. Listing routes require `Authorization: Bearer $INGEST_TOKEN`.
 

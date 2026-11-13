@@ -62,6 +62,16 @@ describe("security plugin", () => {
       await app.close();
     });
 
+    it("honours a hop count end to end", async () => {
+      process.env.RATE_LIMIT_MAX = "1";
+      process.env.TRUST_PROXY = "1";
+      const app = await buildApp();
+      expect((await hit(app, "1.1.1.1")).statusCode).toBe(200);
+      expect((await hit(app, "2.2.2.2")).statusCode).toBe(200);
+      expect((await hit(app, "1.1.1.1")).statusCode).toBe(429);
+      await app.close();
+    });
+
     it("rate-limits per forwarded client IP when set", async () => {
       process.env.RATE_LIMIT_MAX = "1";
       process.env.TRUST_PROXY = "10.0.0.1";
