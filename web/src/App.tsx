@@ -276,6 +276,7 @@ export function App() {
         ) : null}
         {mode === "detail" && active ? (
           <Detail
+            key={active.id}
             row={active}
             states={states}
             onBack={() => setReading(false)}

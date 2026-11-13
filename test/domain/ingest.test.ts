@@ -166,6 +166,17 @@ describe("parseIngest details", () => {
     expect(parsed.provided.size).toBe(0);
   });
 
+  it("never stores a placeholder as a fuel or a heating system", () => {
+    for (const placeholder of ["keine Angabe", "no_information", "No information", "n/a"]) {
+      expect(energySourceOf(placeholder)).toBeNull();
+      const parsed = parseIngest({ title: "Placeholder", heatingSystem: placeholder, energySource: placeholder });
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+      expect(parsed.listing.heatingSystem).toBeNull();
+      expect(parsed.listing.energySource).toBeNull();
+    }
+  });
+
   it("maps a fuel to one canonical label and keeps an unknown one as published", () => {
     expect(energySourceOf("Pellets")).toBe("Pellets");
     expect(energySourceOf("Luft-Wasser-Wärmepumpe")).toBe("Wärmepumpe");

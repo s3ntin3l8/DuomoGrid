@@ -81,10 +81,13 @@ function detailsOf(value: unknown): DetailPair[] {
   return pairs;
 }
 
+/** Portal placeholders for "not stated". Same pattern as in extension/extract.js. */
+const ABSENT = /^(no[_ ]information|keine angabe|n\/a)$/i;
+
 /** Known fuels become one canonical label so analysis can match on it. Anything else stays as published. */
 export function energySourceOf(value: unknown): string | null {
   const raw = textOrNull(value);
-  if (!raw) return null;
+  if (!raw || ABSENT.test(raw)) return null;
   const text = raw.toLowerCase();
   if (text.includes("pellet")) return "Pellets";
   if (/holz|wood|hackschnitzel/.test(text)) return "Holz";
@@ -96,6 +99,11 @@ export function energySourceOf(value: unknown): string | null {
   if (/strom|electric|nachtspeicher|night/.test(text)) return "Strom";
   if (text.includes("solar")) return "Solar";
   return raw.slice(0, 60);
+}
+
+function heatingSystemOf(value: unknown): string | null {
+  const text = textOrNull(value);
+  return text && !ABSENT.test(text) ? text.slice(0, 80) : null;
 }
 
 function parkingTypeOf(value: unknown): ParkingType | null {
@@ -290,7 +298,7 @@ export function parseIngest(input: unknown): IngestResult {
       groundRentEur: looseNumber(body.groundRentEur),
       monument: looseBool(body.monument),
       tenantOccupied: looseBool(body.tenantOccupied ?? body.rentedOut),
-      heatingSystem: textOrNull(body.heatingSystem)?.slice(0, 80) ?? null,
+      heatingSystem: heatingSystemOf(body.heatingSystem),
       energySource: energySourceOf(body.energySource),
       parkingSpaces: count(body.parkingSpaces, 99),
       parkingType: parkingTypeOf(body.parkingType),

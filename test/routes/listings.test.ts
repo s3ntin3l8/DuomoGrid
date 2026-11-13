@@ -1010,6 +1010,11 @@ describe("listings", () => {
     expect(flagsOf(viaList)).toEqual(flagsOf(viaDetail));
     expect(flagsOf(viaDetail).flags).not.toContain("Unrenovated building");
 
+    // The findings follow the stored text: a save with another description is read again, not served from the cache.
+    await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, description: { object: "Das Bad wurde 2012 renoviert." } } });
+    const reread = (await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json();
+    expect(reread.descriptionFindings.renovatedYear).toBe(2012);
+
     // A renovation year read from the text never overrides a stored one.
     const stored = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...rich, yearRefurbished: 2020 } });
     expect(stored.json().listing.yearRefurbished).toBe(2020);

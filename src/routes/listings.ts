@@ -4,7 +4,7 @@ import { installIngestGuard } from "../auth/guard.js";
 import { normalizeAssumptions } from "../domain/assumptions.js";
 import { analyze } from "../domain/analyze.js";
 import { cohortSummary, rentAgainstBuy, type CohortRow } from "../domain/compare.js";
-import { describeFindings } from "../domain/describe.js";
+import { describeFindings, type DescriptionFindings } from "../domain/describe.js";
 import { exactPoint, parseIngest, type ExtraKey } from "../domain/ingest.js";
 import { districtSaleBandFor } from "../domain/district-band.js";
 import { fetchBodenrichtwert, type Bodenrichtwert } from "../domain/bodenrichtwert.js";
@@ -247,6 +247,23 @@ function readFacts(body: Record<string, unknown>): { ok: true; facts: FactPatch 
   return { ok: true, facts };
 }
 
+/**
+ * Findings depend only on the description text, which changes on a save and not on a read. Reading the list would
+ * otherwise rescan every description on every load, so the result is kept per stored text.
+ */
+const findingsCache = new Map<string, DescriptionFindings>();
+const FINDINGS_CACHE_MAX = 500;
+
+function findingsFor(stored: string | null, description: ListingDescription | null): DescriptionFindings {
+  if (!stored) return describeFindings(description);
+  const cached = findingsCache.get(stored);
+  if (cached) return cached;
+  const found = describeFindings(description);
+  if (findingsCache.size >= FINDINGS_CACHE_MAX) findingsCache.clear();
+  findingsCache.set(stored, found);
+  return found;
+}
+
 /** The observation copy of a body keeps what priced the listing, not the long text. */
 function withoutLongText(body: unknown): unknown {
   if (!body || typeof body !== "object" || Array.isArray(body)) return body ?? {};
@@ -319,7 +336,7 @@ export async function listingsRoute(app: FastifyInstance) {
   function present(row: ListingRow, priceMap: Map<string, number | null>, past: Map<string, { seenAt: string; priceEur: number | null }[]>, model: Assumptions, full = false) {
     const priceEur = priceMap.get(row.id) ?? null;
     const input = asInput(row, priceEur);
-    const findings = describeFindings(input.description);
+    const findings = findingsFor(row.descriptionJson, input.description);
     // A renovation year read from the text only fills a gap. A stored year always wins.
     const analysed = { ...input, yearRefurbished: input.yearRefurbished ?? findings.renovatedYear };
     const districtSaleBand = districtSaleBandFor({
