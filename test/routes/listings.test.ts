@@ -46,6 +46,17 @@ describe("listings", () => {
     expect(created.json().listing.offer).toBe("buy");
     expect(created.json().listing.condoFeeEur).toBe(285);
     expect(created.json().listing.latitude).toBeNull();
+    expect(created.json().listing.street).toBeNull();
+
+    const streetOnly = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers: { authorization: "Bearer test-token" },
+      payload: { ...payload, street: "Altstadt 1" },
+    });
+    expect(streetOnly.statusCode).toBe(200);
+    expect(streetOnly.json().listing.street).toBe("Altstadt 1");
+    expect(streetOnly.json().listing.latitude).toBeNull();
 
     const again = await app.inject({
       method: "POST",
@@ -77,14 +88,24 @@ describe("listings", () => {
     expect(moved.json().listing.locationPrecision).toBe("exact");
     expect(moved.json().listing.street).toBe("Altstadt 12");
 
+    const pointOnly = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers: { authorization: "Bearer test-token" },
+      payload: { ...payload, latitude: "48.538", longitude: "12.153" },
+    });
+    expect(pointOnly.json().listing.latitude).toBe(48.538);
+    expect(pointOnly.json().listing.longitude).toBe(12.153);
+    expect(pointOnly.json().listing.street).toBe("Altstadt 12");
+
     const half = await app.inject({
       method: "POST",
       url: "/listings",
       headers: { authorization: "Bearer test-token" },
       payload: { ...payload, latitude: 47.1 },
     });
-    expect(half.json().listing.latitude).toBe(48.537);
-    expect(half.json().listing.longitude).toBe(12.152);
+    expect(half.json().listing.latitude).toBe(48.538);
+    expect(half.json().listing.longitude).toBe(12.153);
     expect(half.json().listing.street).toBe("Altstadt 12");
 
     const omitted = await app.inject({
@@ -93,7 +114,7 @@ describe("listings", () => {
       headers: { authorization: "Bearer test-token" },
       payload,
     });
-    expect(omitted.json().listing.latitude).toBe(48.537);
+    expect(omitted.json().listing.latitude).toBe(48.538);
     expect(omitted.json().listing.street).toBe("Altstadt 12");
     expect(omitted.json().notes).toBe("");
 

@@ -21,6 +21,18 @@
     return Number.isFinite(n) ? n : null;
   }
 
+  /** Append a house number unless the last token already is that number, or that number plus one letter (12a). */
+  function joinStreet(streetName, houseNumber) {
+    const name = String(streetName ?? "").replace(/\s+/g, " ").trim();
+    const number = String(houseNumber ?? "").trim();
+    if (!name) return null;
+    if (!number) return name.slice(0, 160);
+    const last = (name.split(" ").at(-1) ?? "").toLowerCase();
+    const wanted = number.toLowerCase();
+    const already = last === wanted || (last.startsWith(wanted) && /^[a-z]$/.test(last.slice(wanted.length)));
+    return (already ? name : `${name} ${number}`).slice(0, 160);
+  }
+
   function parseDeNumber(raw) {
     if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
     if (raw == null) return null;
@@ -397,9 +409,10 @@
     const hasPoint = latitude != null && longitude != null
       && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
       && !(Math.abs(latitude) < 1e-8 && Math.abs(longitude) < 1e-8);
-    const streetName = String(pick(records, ["streetaddress", "street", "objstreet", "strasse"]) ?? "").trim();
-    const houseNumber = String(pick(records, ["housenumber", "objhousenumber", "streetnumber"]) ?? "").trim();
-    const street = (streetName && houseNumber && !streetName.endsWith(houseNumber) ? `${streetName} ${houseNumber}` : streetName).slice(0, 160) || null;
+    const street = joinStreet(
+      pick(records, ["streetaddress", "street", "objstreet", "strasse"]),
+      pick(records, ["housenumber", "objhousenumber", "streetnumber"]),
+    );
     const year = (value) => {
       const n = parseDeNumber(value);
       return n != null && n >= 1600 && n <= 2100 ? Math.round(n) : null;
@@ -478,4 +491,6 @@
 
   globalThis.duomoExtract = extractListing;
   globalThis.duomoBuildListing = buildListing;
+  globalThis.duomoParseCoordinate = parseCoordinate;
+  globalThis.duomoJoinStreet = joinStreet;
 })();

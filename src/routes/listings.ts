@@ -193,7 +193,7 @@ export async function listingsRoute(app: FastifyInstance) {
       district: listing.district,
       postalCode: listing.postalCode,
       state: listing.state,
-      street: located ? listing.street : (existing?.street ?? null),
+      street: listing.street ?? existing?.street ?? null,
       latitude: located ? listing.latitude : (existing?.latitude ?? null),
       longitude: located ? listing.longitude : (existing?.longitude ?? null),
       locationPrecision: located ? "exact" : (existing?.locationPrecision === "exact" ? "exact" : null),
