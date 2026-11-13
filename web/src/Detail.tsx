@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { DeskListing, ListingPatch, StateOption } from "./api";
-import { area, eur, num, propertyLabel, statusLabel, STATUSES, when } from "./format";
+import { area, eur, num, perM2Text, propertyLabel, statusLabel, STATUSES, when } from "./format";
 
 export function Detail({
   row,
@@ -73,7 +73,7 @@ export function Detail({
         <div>
           <p className="price">{eur(listing.priceEur)}</p>
           <p className="meta">
-            {buy ? `${eur(analysis.pricePerLivingM2)} / m²` : `${eur(analysis.rentPerM2, 2)} / m²`}
+            {perM2Text(buy, buy ? analysis.pricePerLivingM2 : analysis.rentPerM2) ?? "— / m²"}
             {listing.livingAreaM2 ? ` · ${area(listing.livingAreaM2)}` : ""}
             {listing.rooms ? ` · ${num(listing.rooms, 1)} rooms` : ""}
           </p>
