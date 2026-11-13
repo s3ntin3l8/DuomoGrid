@@ -103,6 +103,13 @@ function pointOf(latValue: unknown, lngValue: unknown): {
   return { latitude, longitude, locationPrecision: "exact" };
 }
 
+/** Both coordinates in range, or null. 0,0 is not a place. Client precision is ignored. */
+export function exactPoint(latValue: unknown, lngValue: unknown): { latitude: number; longitude: number } | null {
+  const point = pointOf(latValue, lngValue);
+  if (point.latitude == null || point.longitude == null) return null;
+  return { latitude: point.latitude, longitude: point.longitude };
+}
+
 function rentContract(value: unknown): ListingInput["rentContract"] {
   const text = String(value ?? "").toLowerCase();
   if (!text) return null;
