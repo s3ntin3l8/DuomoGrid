@@ -10,6 +10,29 @@
       .replace(/[^a-z0-9]/g, "");
   }
 
+  function parseCoordinate(raw) {
+    if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
+    if (raw == null) return null;
+    let s = String(raw).trim().replace(/\s/g, "").replace(/°/g, "");
+    if (!s) return null;
+    if (s.includes(",") && !s.includes(".")) s = s.replace(",", ".");
+    if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /** Append a house number unless the last token already is that number, or that number plus one letter (12a). */
+  function joinStreet(streetName, houseNumber) {
+    const name = String(streetName ?? "").replace(/\s+/g, " ").trim();
+    const number = String(houseNumber ?? "").trim();
+    if (!name) return null;
+    if (!number) return name.slice(0, 160);
+    const last = (name.split(" ").at(-1) ?? "").toLowerCase();
+    const wanted = number.toLowerCase();
+    const already = last === wanted || (last.startsWith(wanted) && /^[a-z]$/.test(last.slice(wanted.length)));
+    return (already ? name : `${name} ${number}`).slice(0, 160);
+  }
+
   function parseDeNumber(raw) {
     if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
     if (raw == null) return null;
@@ -381,6 +404,15 @@
       .replace(/\s+\|\s+Immowelt.*$/i, "")
       .trim()
       .slice(0, 180) || "Listing";
+    const latitude = parseCoordinate(pick(records, ["latitude", "geolat", "objlat", "wgs84latitude"]));
+    const longitude = parseCoordinate(pick(records, ["longitude", "geolong", "geolng", "objlong", "objlng", "wgs84longitude"]));
+    const hasPoint = latitude != null && longitude != null
+      && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
+      && !(Math.abs(latitude) < 1e-8 && Math.abs(longitude) < 1e-8);
+    const street = joinStreet(
+      pick(records, ["streetaddress", "street", "objstreet", "strasse"]),
+      pick(records, ["housenumber", "objhousenumber", "streetnumber"]),
+    );
     const year = (value) => {
       const n = parseDeNumber(value);
       return n != null && n >= 1600 && n <= 2100 ? Math.round(n) : null;
@@ -402,6 +434,9 @@
         district: String(pick(records, ["objregio3", "district"]) ?? "").trim() || null,
         postalCode: String(pick(records, ["objzipcode", "geoplz", "postalcode", "postcode", "plz"]) ?? "").replace(/\s/g, "") || null,
         state: String(pick(records, ["objregio1", "addressregion", "state", "bundesland"]) ?? "").trim() || null,
+        street,
+        latitude: hasPoint ? latitude : null,
+        longitude: hasPoint ? longitude : null,
         propertyType,
         listingKind,
         yearBuilt: year(pick(records, ["objyearconstructed", "yearconstructed", "yearbuilt", "baujahr", "constructionyear"])),
@@ -456,4 +491,6 @@
 
   globalThis.duomoExtract = extractListing;
   globalThis.duomoBuildListing = buildListing;
+  globalThis.duomoParseCoordinate = parseCoordinate;
+  globalThis.duomoJoinStreet = joinStreet;
 })();

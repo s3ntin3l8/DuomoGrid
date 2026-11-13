@@ -71,6 +71,38 @@ function sourceOf(value: unknown): Source {
   return "manual";
 }
 
+function streetOf(value: unknown): string | null {
+  const text = textOrNull(value);
+  return text ? text.slice(0, 160) : null;
+}
+
+/** WGS84, not a German amount. "48.137" is a latitude; looseNumber would read it as 48137. */
+function coordinate(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (value == null || value === "") return null;
+  let text = String(value).trim().replace(/\s/g, "").replace(/°/g, "");
+  if (!text) return null;
+  if (text.includes(",") && !text.includes(".")) text = text.replace(",", ".");
+  if (!/^-?\d+(\.\d+)?$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** A point is stored only when both coordinates are in range. 0,0 is a portal sentinel, not a place. */
+function pointOf(latValue: unknown, lngValue: unknown): {
+  latitude: number | null;
+  longitude: number | null;
+  locationPrecision: "exact" | null;
+} {
+  const latitude = coordinate(latValue);
+  const longitude = coordinate(lngValue);
+  const missing = { latitude: null, longitude: null, locationPrecision: null };
+  if (latitude == null || longitude == null) return missing;
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return missing;
+  if (Math.abs(latitude) < 1e-8 && Math.abs(longitude) < 1e-8) return missing;
+  return { latitude, longitude, locationPrecision: "exact" };
+}
+
 function rentContract(value: unknown): ListingInput["rentContract"] {
   const text = String(value ?? "").toLowerCase();
   if (!text) return null;
@@ -90,6 +122,7 @@ export function parseIngest(input: unknown): IngestResult {
   const price = looseNumber(body.priceEur);
   const coldRent = looseNumber(body.coldRentEur);
   const title = String(body.title ?? "").replace(/\s+/g, " ").trim() || "Listing";
+  const point = pointOf(body.latitude ?? body.lat ?? body.geoLat, body.longitude ?? body.lng ?? body.lon ?? body.geoLng ?? body.geoLong);
   return {
     ok: true,
     listing: {
@@ -106,6 +139,10 @@ export function parseIngest(input: unknown): IngestResult {
       district: textOrNull(body.district),
       postalCode: textOrNull(body.postalCode)?.replace(/\s/g, "") ?? null,
       state: parseState(body.state),
+      street: streetOf(body.street ?? body.streetAddress),
+      latitude: point.latitude,
+      longitude: point.longitude,
+      locationPrecision: point.locationPrecision,
       propertyType: propertyTypeOf(body.propertyType),
       yearBuilt: year(body.yearBuilt),
       yearRefurbished: year(body.yearRefurbished),

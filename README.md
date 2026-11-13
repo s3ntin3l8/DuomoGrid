@@ -34,7 +34,7 @@ SQLite defaults to `file:./data/app.db`.
 
 ## Extension
 
-Load `extension/` as an unpacked extension. Set the server URL and the same ingest token in the popup, then open a single exposé and choose **Save to DuomoGrid**. A second save of the same listing updates the row and adds a price observation only when the price changed. Open the desk at the server URL, paste the token, and the listing is there.
+Load `extension/` as an unpacked extension. Set the server URL and the same ingest token in the popup, then open a single exposé and choose **Save to DuomoGrid**. A second save of the same listing updates the row and adds a price observation only when the price changed. A street is stored even when the page has no coordinate. When the page includes a coordinate, that point is stored too. A later save that omits the street or the coordinate leaves the stored value in place. Open the desk at the server URL, paste the token, and the listing is there.
 
 ## What is not here yet
 

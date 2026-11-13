@@ -38,6 +38,11 @@ export type ListingInput = {
   district: string | null;
   postalCode: string | null;
   state: StateId | null;
+  street: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  /** Set by the server. "exact" means both coordinates came from the exposé. */
+  locationPrecision: "exact" | null;
   propertyType: PropertyType;
   yearBuilt: number | null;
   yearRefurbished: number | null;
