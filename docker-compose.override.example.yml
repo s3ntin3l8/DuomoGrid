@@ -44,7 +44,8 @@ services:
       # The desk (static SPA) and everything else, including routes with no
       # auth of their own (e.g. the example /users), sit behind your Authentik
       # forward-auth chain (defined in Traefik's dynamic config). Adjust the
-      # middleware name, and do NOT remove it unless something else gates
+      # middleware name (the chain must already be defined there, or Traefik
+      # drops this router and the desk 404s), and do NOT remove it unless something else gates
       # this host, or the desk is published unauthenticated.
       - traefik.http.routers.duomogrid.entrypoints=websecure
       - "traefik.http.routers.duomogrid.rule=Host(`duomogrid.example.com`)"

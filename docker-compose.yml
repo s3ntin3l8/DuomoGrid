@@ -12,8 +12,9 @@
 #  this file automatically. Template: docker-compose.override.example.yml.
 #  Keep this file generic.
 #
-#  Image tags: `:edge` is rebuilt on every push to main. `:latest` and `:vX.Y.Z`
-#  only exist after the first release-please release; pin one then. Tags:
+#  Image tags: `:latest` is the newest release (it exists once the first
+#  release-please release is cut). Pin `:X.Y.Z` or `:X.Y` (no `v` prefix) to
+#  stay on a version, or use `:edge` for every push to main. Tags:
 #  https://github.com/s3ntin3l8/duomogrid/pkgs/container/duomogrid
 #
 #  Build from source instead of pulling: uncomment the `build:` block below
@@ -21,14 +22,15 @@
 
 services:
   api:
-    image: ghcr.io/s3ntin3l8/duomogrid:edge
+    image: ghcr.io/s3ntin3l8/duomogrid:latest
     # build:
     #   context: .
     #   dockerfile: Dockerfile
     ports:
       - "3000:3000"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       # These win over .env (Compose: `environment:` beats `env_file:`).
       NODE_ENV: production
