@@ -99,4 +99,20 @@ describe("extract helpers", () => {
     expect(free.listing.rentedOut).toBe(false);
     expect(rented.listing.rentedOut).toBe(true);
   });
+
+  it("takes the town instead of the Kreis in every spelling, and keeps a real city", () => {
+    const { duomoBuildListing } = globalThis as ExtractGlobals & {
+      duomoBuildListing: (r: Record<string, unknown>[], p: typeof page) => { ok: boolean; listing?: { city: string; district: string | null } };
+    };
+    const cases: [string, string, string, string | null][] = [
+      ["Eichstätt_Kreis", "Kösching", "Kösching", null],
+      ["Landkreis Testland", "Testdorf", "Testdorf", null],
+      ["Lkr. Testland", "Testdorf", "Testdorf", null],
+      ["München", "Schwabing", "München", "Schwabing"],
+    ];
+    for (const [regio2, regio3, city, district] of cases) {
+      const result = duomoBuildListing([{ objregio2: regio2, objregio3: regio3 }], page);
+      expect(result.listing).toMatchObject({ city, district });
+    }
+  });
 });

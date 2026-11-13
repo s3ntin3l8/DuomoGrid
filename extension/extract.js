@@ -97,7 +97,8 @@
     return blob;
   }
 
-  function assignedObject(source, name) {
+  /** The balanced `{ … }` text after `name`, or null. Not parsed: IS24 also writes JS literals with `undefined`. */
+  function assignedSource(source, name) {
     const idx = source.indexOf(name);
     if (idx < 0) return null;
     const start = source.indexOf("{", idx);
@@ -122,16 +123,20 @@
       if (char === "{") depth += 1;
       else if (char === "}") {
         depth -= 1;
-        if (depth === 0) {
-          try {
-            return JSON.parse(source.slice(start, i + 1));
-          } catch {
-            return null;
-          }
-        }
+        if (depth === 0) return source.slice(start, i + 1);
       }
     }
     return null;
+  }
+
+  function assignedObject(source, name) {
+    const text = assignedSource(source, name);
+    if (text == null) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
   }
 
   function regexFields(source) {
@@ -388,11 +393,10 @@
         record.locationPrecision = location.showFullAddress === true ? "exact" : "approximate";
       }
     }
-    const idx = blob.indexOf("locationAddress");
-    if (idx >= 0) {
-      const slice = blob.slice(idx, idx + 700);
+    const address = assignedSource(blob, "locationAddress");
+    if (address) {
       const text = (name) => {
-        const match = slice.match(new RegExp(`\\b${name}:\\s*"([^"]{0,120})"`));
+        const match = address.match(new RegExp(`\\b${name}:\\s*"([^"]{0,120})"`));
         return match ? match[1] : null;
       };
       record.city = text("city");
@@ -584,7 +588,7 @@
     let city = String(pick(records, ["objregio2", "addresslocality", "city", "stadt"]) ?? "").trim();
     let district = String(pick(records, ["objregio3", "district"]) ?? "").trim() || null;
     // IS24 puts the Kreis in regio2 for small towns and the town in regio3.
-    if (/_kreis$|\bkreis$/i.test(city) && district) {
+    if ((/kreis(?![a-zäöü])/i.test(city) || /^lkr\b/i.test(city)) && district) {
       city = district;
       district = null;
     }

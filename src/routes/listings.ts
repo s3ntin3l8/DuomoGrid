@@ -384,9 +384,10 @@ export async function listingsRoute(app: FastifyInstance) {
     } else if (wantsMove) {
       const placed = exactPoint(body.latitude, body.longitude);
       if (!placed) return reply.code(400).send({ error: "A point needs both coordinates in range." });
+      // Sending the stored numbers back does not make an approximate point exact.
+      if (!samePoint(row.latitude, row.longitude, placed.latitude, placed.longitude)) locationPrecision = "exact";
       latitude = placed.latitude;
       longitude = placed.longitude;
-      locationPrecision = "exact";
     }
     const pointMoved = !samePoint(row.latitude, row.longitude, latitude, longitude);
     const brw = pointMoved ? clearedBrw() : keptBrw(row);

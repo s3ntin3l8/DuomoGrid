@@ -893,6 +893,11 @@ describe("listings", () => {
     const cache = { brwStatus: "published", brwZone: "Zone", brwEurPerM2: 2000, brwStichtag: "01.01.2026" };
     app.db.update(listings).set(cache).where(eq(listings.id, id)).run();
 
+    // Sending the stored numbers back through PATCH does not make the point exact, and keeps the cache.
+    const same = await app.inject({ method: "PATCH", url: `/listings/${id}`, headers, payload: { latitude: 48.815, longitude: 11.509 } });
+    expect(same.json().listing.locationPrecision).toBe("approximate");
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.brwStatus).toBe("published");
+
     // The same point again keeps the cached land value.
     await app.inject({ method: "POST", url: "/listings", headers, payload });
     expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.brwStatus).toBe("published");
