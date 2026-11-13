@@ -27,7 +27,10 @@ services:
     container_name: duomogrid
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
+      # These win over .env (Compose: `environment:` beats `env_file:`).
       NODE_ENV: production
       DATABASE_URL: file:/app/data/app.db
       INGEST_TOKEN: ${INGEST_TOKEN:?set INGEST_TOKEN}
