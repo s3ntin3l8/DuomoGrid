@@ -100,6 +100,12 @@ export type DeskListing = {
     monthlyCarryingEur: number | null;
     carryingMinusMedianCold: number | null;
   } | null;
+  bodenrichtwert: {
+    status: "unknown" | "none" | "published" | "unpublished";
+    zone: string | null;
+    eurPerM2: number | null;
+    stichtag: string | null;
+  } | null;
 };
 
 const TOKEN_KEY = "duomo.token";
@@ -145,6 +151,10 @@ async function request<T>(token: string, path: string, init?: RequestInit): Prom
 
 export function loadListings(token: string) {
   return request<DeskListing[]>(token, "/listings");
+}
+
+export function loadListing(token: string, id: string) {
+  return request<DeskListing>(token, `/listings/${id}`);
 }
 
 export function saveListing(

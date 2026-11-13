@@ -36,6 +36,13 @@
       "when": 1794586652448,
       "tag": "0004_even_jack_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794594740489,
+      "tag": "0005_bavaria_bodenrichtwert",
+      "breakpoints": true
     }
   ]
 }

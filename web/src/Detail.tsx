@@ -7,12 +7,16 @@ export function Detail({
   onStatus,
   onNotes,
   onClearPoint,
+  landPending,
+  landMiss,
 }: {
   row: DeskListing;
   onBack: () => void;
   onStatus: (status: string) => void;
   onNotes: (notes: string) => void;
   onClearPoint: () => void;
+  landPending: boolean;
+  landMiss: boolean;
 }) {
   const { listing, analysis } = row;
   const buy = listing.offer === "buy";
@@ -88,6 +92,7 @@ export function Detail({
           ))}
         </ul>
       ) : null}
+      <LandValue row={row} pending={landPending} miss={landMiss} />
       <div className="cols">
         {buy ? (
           <section className="block">
@@ -168,6 +173,34 @@ export function Detail({
       </section>
     </article>
   );
+}
+
+function LandValue({ row, pending, miss }: { row: DeskListing; pending: boolean; miss: boolean }) {
+  const land = row.bodenrichtwert;
+  if (land?.status === "published" || land?.status === "unpublished") {
+    return (
+      <section className="block">
+        <h3>Land value</h3>
+        <p className="meta">
+          Bodenrichtwert for this plot, in EUR per m² of land. Not the asking price per living m², and not a Kaufwert.
+        </p>
+        <p>
+          Zone {land.zone}
+          {land.status === "published" ? ` · ${eur(land.eurPerM2)} / m² of land` : " · value not published"}
+          {land.stichtag ? ` · as of ${land.stichtag}` : ""}
+        </p>
+        <p className="meta">
+          {land.status === "unpublished"
+            ? "The committee does not publish a figure for this zone. Nothing here is stored as zero. "
+            : "Published Bavarian standard land value for private viewing. "}
+          Not the official paid Auskunft.
+        </p>
+      </section>
+    );
+  }
+  if (pending) return <p className="meta">Looking up the Bavarian land value…</p>;
+  if (miss) return <p className="meta">The land value could not be loaded. The listing itself is unchanged.</p>;
+  return null;
 }
 
 function Line({ label, value, total = false }: { label: string; value: string; total?: boolean }) {

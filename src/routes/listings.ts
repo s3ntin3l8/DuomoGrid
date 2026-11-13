@@ -5,6 +5,7 @@ import { normalizeAssumptions } from "../domain/assumptions.js";
 import { analyze } from "../domain/analyze.js";
 import { cohortSummary, rentAgainstBuy, type CohortRow } from "../domain/compare.js";
 import { exactPoint, parseIngest } from "../domain/ingest.js";
+import { fetchBodenrichtwert, type Bodenrichtwert } from "../domain/bodenrichtwert.js";
 import { DEFAULT_ASSUMPTIONS } from "../domain/types.js";
 import type { Assumptions, ListingInput, Offer, PropertyType, Source } from "../domain/types.js";
 import { listings, observations, settings } from "../db/schema.js";
@@ -73,6 +74,53 @@ function toCohort(row: ListingRow, priceEur: number | null): CohortRow {
   };
 }
 
+type BrwColumns = {
+  brwStatus: string | null;
+  brwZone: string | null;
+  brwEurPerM2: number | null;
+  brwStichtag: string | null;
+};
+
+function samePoint(leftLat: number | null, leftLng: number | null, rightLat: number | null, rightLng: number | null) {
+  if (leftLat == null || leftLng == null || rightLat == null || rightLng == null) return false;
+  return Math.abs(leftLat - rightLat) < 1e-8 && Math.abs(leftLng - rightLng) < 1e-8;
+}
+
+function clearedBrw(): BrwColumns {
+  return { brwStatus: null, brwZone: null, brwEurPerM2: null, brwStichtag: null };
+}
+
+function keptBrw(row: ListingRow): BrwColumns {
+  return {
+    brwStatus: row.brwStatus,
+    brwZone: row.brwZone,
+    brwEurPerM2: row.brwEurPerM2,
+    brwStichtag: row.brwStichtag,
+  };
+}
+
+function columnsFromHit(hit: Bodenrichtwert): BrwColumns {
+  if (hit.status === "published") {
+    return { brwStatus: "published", brwZone: hit.zone, brwEurPerM2: hit.eurPerM2, brwStichtag: hit.stichtag };
+  }
+  if (hit.status === "unpublished") {
+    return { brwStatus: "unpublished", brwZone: hit.zone, brwEurPerM2: null, brwStichtag: hit.stichtag };
+  }
+  return { brwStatus: "none", brwZone: null, brwEurPerM2: null, brwStichtag: null };
+}
+
+function bodenrichtwertView(row: ListingRow) {
+  if (row.latitude == null || row.longitude == null) return null;
+  if (row.brwStatus === "published" && row.brwZone && row.brwEurPerM2 != null && row.brwEurPerM2 > 0) {
+    return { status: "published" as const, zone: row.brwZone, eurPerM2: row.brwEurPerM2, stichtag: row.brwStichtag };
+  }
+  if (row.brwStatus === "unpublished" && row.brwZone) {
+    return { status: "unpublished" as const, zone: row.brwZone, eurPerM2: null, stichtag: row.brwStichtag };
+  }
+  if (row.brwStatus === "none") return { status: "none" as const, zone: null, eurPerM2: null, stichtag: null };
+  return { status: "unknown" as const, zone: null, eurPerM2: null, stichtag: null };
+}
+
 export async function listingsRoute(app: FastifyInstance) {
   installIngestGuard(app, "/listings");
 
@@ -126,11 +174,23 @@ export async function listingsRoute(app: FastifyInstance) {
       observations: past.get(row.id) ?? [],
       cohort: cohortSummary(subject, everyone),
       rentComparison: rentAgainstBuy({ ...subject, monthlyCarryingEur: analysis.monthlyTotal }, everyone),
+      bodenrichtwert: bodenrichtwertView(row),
     };
   }
 
   function context() {
     return { priceMap: prices(), past: history(), model: assumptions() };
+  }
+
+  async function ensureBodenrichtwert(row: ListingRow): Promise<ListingRow> {
+    if (row.latitude == null || row.longitude == null || row.brwStatus != null) return row;
+    try {
+      const hit = await fetchBodenrichtwert(row.latitude, row.longitude);
+      app.db.update(listings).set(columnsFromHit(hit)).where(eq(listings.id, row.id)).run();
+      return app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0] ?? row;
+    } catch {
+      return row;
+    }
   }
 
   app.get("/listings", async () => {
@@ -145,8 +205,9 @@ export async function listingsRoute(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>("/listings/:id", async (request, reply) => {
     const row = app.db.select().from(listings).where(eq(listings.id, request.params.id)).all()[0];
     if (!row) return reply.code(404).send({ error: "Listing not found." });
+    const stored = await ensureBodenrichtwert(row);
     const ctx = context();
-    return present(row, ctx.priceMap, ctx.past, ctx.model);
+    return present(stored, ctx.priceMap, ctx.past, ctx.model);
   });
 
   app.patch<{ Params: { id: string }; Body: { notes?: unknown; status?: unknown; latitude?: unknown; longitude?: unknown; clearPoint?: unknown } }>(
@@ -177,9 +238,11 @@ export async function listingsRoute(app: FastifyInstance) {
         longitude = placed.longitude;
         locationPrecision = "exact";
       }
+      const pointMoved = !samePoint(row.latitude, row.longitude, latitude, longitude);
+      const brw = pointMoved ? clearedBrw() : keptBrw(row);
       app.db
         .update(listings)
-        .set({ notes, status: nextStatus, latitude, longitude, locationPrecision, updatedAt: new Date().toISOString() })
+        .set({ notes, status: nextStatus, latitude, longitude, locationPrecision, ...brw, updatedAt: new Date().toISOString() })
         .where(eq(listings.id, row.id))
         .run();
       const stored = app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0];
@@ -200,6 +263,9 @@ export async function listingsRoute(app: FastifyInstance) {
     });
     const id = existing?.id ?? crypto.randomUUID();
     const located = listing.latitude != null && listing.longitude != null;
+    const nextLatitude = located ? listing.latitude : (existing?.latitude ?? null);
+    const nextLongitude = located ? listing.longitude : (existing?.longitude ?? null);
+    const brw = existing && samePoint(existing.latitude, existing.longitude, nextLatitude, nextLongitude) ? keptBrw(existing) : clearedBrw();
     const values = {
       id,
       source: listing.source,
@@ -212,8 +278,8 @@ export async function listingsRoute(app: FastifyInstance) {
       postalCode: listing.postalCode,
       state: listing.state,
       street: listing.street ?? existing?.street ?? null,
-      latitude: located ? listing.latitude : (existing?.latitude ?? null),
-      longitude: located ? listing.longitude : (existing?.longitude ?? null),
+      latitude: nextLatitude,
+      longitude: nextLongitude,
       locationPrecision: located ? "exact" : (existing?.locationPrecision === "exact" ? "exact" : null),
       propertyType: listing.propertyType,
       livingAreaM2: listing.livingAreaM2,
@@ -240,6 +306,7 @@ export async function listingsRoute(app: FastifyInstance) {
       groundRentEur: listing.groundRentEur,
       monument: listing.monument,
       tenantOccupied: listing.tenantOccupied,
+      ...brw,
       notes: existing?.notes ?? "",
       status: existing?.status ?? "open",
       createdAt: existing?.createdAt ?? now,

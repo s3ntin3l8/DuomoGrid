@@ -185,6 +185,134 @@ describe("listings", () => {
       headers: { authorization: "Bearer test-token" },
     });
     expect(scored.json().analysis.notaryEur).toBe(9300);
+    expect(scored.json().bodenrichtwert).toBeNull();
     await app.close();
+  });
+
+  it("caches a Bavarian land value on the detail and does not score it", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const realFetch = globalThis.fetch;
+    const calls: string[] = [];
+    let body = "bodenrichtwertszonenname = Untere Altstadt\nbodenrichtwert = 2.000\nstichtag = 01.01.2026\n";
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(body, { status: 200 });
+    }) as typeof fetch;
+    const headers = { authorization: "Bearer test-token" };
+    const payload = {
+      v: 1,
+      source: "immobilienscout24",
+      sourceUrl: "https://www.immobilienscout24.de/expose/456",
+      externalId: "456",
+      title: "Altstadt apartment",
+      priceEur: 465000,
+      livingAreaM2: 92,
+      city: "Landshut",
+      postalCode: "84028",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+    };
+    try {
+      const created = await app.inject({ method: "POST", url: "/listings", headers, payload });
+      expect(created.statusCode).toBe(201);
+      const id = created.json().id as string;
+      const score = created.json().analysis.score as number;
+      const bare = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(bare.json().bodenrichtwert).toBeNull();
+      expect(calls).toHaveLength(0);
+
+      const placed = await app.inject({
+        method: "POST",
+        url: "/listings",
+        headers,
+        payload: { ...payload, latitude: "48.537", longitude: "12.152" },
+      });
+      expect(placed.json().listing.latitude).toBe(48.537);
+      const listed = await app.inject({ method: "GET", url: "/listings", headers });
+      const row = listed.json().find((item: { id: string }) => item.id === id);
+      expect(row.bodenrichtwert).toEqual({ status: "unknown", zone: null, eurPerM2: null, stichtag: null });
+      expect(calls).toHaveLength(0);
+
+      const detail = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(detail.statusCode).toBe(200);
+      expect(detail.json().bodenrichtwert).toEqual({
+        status: "published",
+        zone: "Untere Altstadt",
+        eurPerM2: 2000,
+        stichtag: "01.01.2026",
+      });
+      expect(detail.json().analysis.score).toBe(score);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toContain("bodenrichtwerte_2026");
+      expect(calls[0]).toContain("EPSG%3A4326");
+
+      const again = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(again.json().bodenrichtwert.eurPerM2).toBe(2000);
+      expect(calls).toHaveLength(1);
+
+      const kept = await app.inject({ method: "POST", url: "/listings", headers, payload });
+      expect(kept.json().bodenrichtwert.eurPerM2).toBe(2000);
+      expect(calls).toHaveLength(1);
+
+      body = "";
+      await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { latitude: 49.8728, longitude: 8.6512 },
+      });
+      const outside = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(outside.json().bodenrichtwert).toEqual({ status: "none", zone: null, eurPerM2: null, stichtag: null });
+      expect(outside.json().analysis.score).toBe(score);
+      await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(calls).toHaveLength(2);
+
+      body = "bodenrichtwertszonenname = Marienplatz\nbodenrichtwert = Information gebührenpflichtig\nstichtag = 01.01.2026\n";
+      const moved = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { latitude: 48.1374, longitude: 11.5755 },
+      });
+      expect(moved.json().bodenrichtwert.status).toBe("unknown");
+      expect(moved.json().analysis.score).toBe(score);
+      const paywalled = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(paywalled.json().bodenrichtwert).toEqual({
+        status: "unpublished",
+        zone: "Marienplatz",
+        eurPerM2: null,
+        stichtag: "01.01.2026",
+      });
+      expect(paywalled.json().analysis.score).toBe(score);
+      expect(calls).toHaveLength(3);
+
+      globalThis.fetch = (async () => {
+        throw new Error("offline");
+      }) as typeof fetch;
+      const shifted = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { latitude: 48.5748, longitude: 13.4609 },
+      });
+      expect(shifted.statusCode).toBe(200);
+      const failed = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+      expect(failed.statusCode).toBe(200);
+      expect(failed.json().bodenrichtwert.status).toBe("unknown");
+      expect(failed.json().analysis.score).toBe(score);
+
+      const cleared = await app.inject({
+        method: "PATCH",
+        url: `/listings/${id}`,
+        headers,
+        payload: { clearPoint: true },
+      });
+      expect(cleared.json().bodenrichtwert).toBeNull();
+    } finally {
+      globalThis.fetch = realFetch;
+      await app.close();
+    }
   });
 });

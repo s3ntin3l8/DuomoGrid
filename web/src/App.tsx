@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   loadAssumptions,
+  loadListing,
   loadListings,
   rememberToken,
   saveAssumptions,
@@ -34,6 +35,8 @@ export function App() {
   const [picked, setPicked] = useState<string[]>([]);
   const [mode, setMode] = useState<Mode>("detail");
   const [reading, setReading] = useState(false);
+  const [landPendingId, setLandPendingId] = useState<string | null>(null);
+  const [landMissId, setLandMissId] = useState<string | null>(null);
 
   async function refresh(nextToken: string) {
     const [list, model] = await Promise.all([loadListings(nextToken), loadAssumptions(nextToken)]);
@@ -76,6 +79,19 @@ export function App() {
     setActiveId(id);
     setMode("detail");
     setReading(true);
+    const row = rows.find((item) => item.id === id);
+    if (row?.bodenrichtwert?.status !== "unknown") return;
+    setLandPendingId(id);
+    setLandMissId((current) => (current === id ? null : current));
+    void loadListing(token, id)
+      .then((fresh) => {
+        setRows((current) => current.map((item) => (item.id === id ? fresh : item)));
+        setLandPendingId((current) => (current === id ? null : current));
+      })
+      .catch(() => {
+        setLandPendingId((current) => (current === id ? null : current));
+        setLandMissId(id);
+      });
   }
 
   function togglePick(id: string) {
@@ -232,6 +248,8 @@ export function App() {
             onStatus={(next) => void mutate(active.id, { status: next })}
             onNotes={(notes) => void mutate(active.id, { notes })}
             onClearPoint={() => void mutate(active.id, { clearPoint: true })}
+            landPending={landPendingId === active.id && active.bodenrichtwert?.status === "unknown"}
+            landMiss={landMissId === active.id && active.bodenrichtwert?.status === "unknown"}
           />
         ) : null}
         {mode === "detail" && !active ? (
