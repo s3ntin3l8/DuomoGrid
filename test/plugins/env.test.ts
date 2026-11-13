@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { buildApp } from "../../src/app.js";
+import { parseTrustProxy } from "../../src/plugins/env.js";
 
 describe("env plugin", () => {
   afterEach(async () => {
@@ -35,5 +36,19 @@ describe("env plugin", () => {
     expect(app.config.PORT).toBe(4000);
     expect(app.config.LOG_LEVEL).toBe("debug");
     await app.close();
+  });
+});
+
+describe("parseTrustProxy", () => {
+  it("is off when unset, empty or false", () => {
+    expect(parseTrustProxy(undefined)).toBe(false);
+    expect(parseTrustProxy("")).toBe(false);
+    expect(parseTrustProxy(" False ")).toBe(false);
+  });
+
+  it("parses true, hop counts and address lists", () => {
+    expect(parseTrustProxy("true")).toBe(true);
+    expect(parseTrustProxy("1")).toBe(1);
+    expect(parseTrustProxy("10.0.0.1, 172.18.0.0/16")).toEqual(["10.0.0.1", "172.18.0.0/16"]);
   });
 });

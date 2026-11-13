@@ -43,8 +43,29 @@ const schema = {
       type: "string",
       default: "",
     },
+    TRUST_PROXY: {
+      type: "string",
+      default: "",
+    },
   },
 };
+
+/**
+ * Parse TRUST_PROXY for Fastify's `trustProxy` option. Unset/empty/"false" means
+ * don't trust X-Forwarded-* (the safe default: a client can't spoof its IP).
+ * "true" trusts every hop, an integer trusts that many hops, anything else is a
+ * comma-separated list of proxy IPs/CIDRs.
+ */
+export function parseTrustProxy(raw: string | undefined): boolean | number | string[] {
+  const value = (raw ?? "").trim();
+  if (value === "" || value.toLowerCase() === "false") return false;
+  if (value.toLowerCase() === "true") return true;
+  if (/^\d+$/.test(value)) return Number(value);
+  return value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+}
 
 export const envPlugin = fp(async (app) => {
   await app.register(env, {
@@ -65,6 +86,7 @@ declare module "fastify" {
       RATE_LIMIT_MAX: number;
       RATE_LIMIT_WINDOW: string;
       INGEST_TOKEN: string;
+      TRUST_PROXY: string;
     };
   }
 }

@@ -24,7 +24,8 @@ services:
     ports: !reset []                               # drop host publish; route via Traefik
     networks: [proxy]
     # Other settings (CORS_ORIGIN, DB_ENCRYPTION_KEY, RATE_LIMIT_*, LOG_LEVEL) go
-    # in .env. CORS is off by default and the desk is same-origin, so
+    # in .env. Behind Traefik, set TRUST_PROXY there (e.g. the proxy's IP/CIDR) so
+    # rate limiting sees real client IPs. CORS is off by default and the desk is same-origin, so
     # CORS_ORIGIN is only needed if another web origin must call the API.
     labels:
       - traefik.enable=true

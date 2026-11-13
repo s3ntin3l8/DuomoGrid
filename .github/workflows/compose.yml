@@ -1,0 +1,35 @@
+name: Compose
+
+# `check-yaml` skips docker-compose.override*.yml (the `!reset` tag is not plain
+# YAML), so nothing else validates the tracked blueprint and override template.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docker-compose*.yml"
+      - ".env.example"
+      - ".github/workflows/compose.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "docker-compose*.yml"
+      - ".env.example"
+      - ".github/workflows/compose.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate blueprint and override example
+        env:
+          INGEST_TOKEN: ci-placeholder # pragma: allowlist secret
+        run: |
+          # `!reset` in the override template needs Compose >= 2.24.
+          docker compose version
+          cp .env.example .env
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.override.example.yml config -q
