@@ -1,0 +1,41 @@
+#  DuomoGrid — Docker Compose (generic blueprint)
+#
+#  Quick start:
+#    1. cp .env.example .env and set INGEST_TOKEN (compose refuses to start
+#       without it). Generate one with:
+#         node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+#    2. docker compose pull && docker compose up -d
+#    3. Open http://localhost:3000, paste the token into the desk.
+#
+#  Host-specific setup (Traefik, Authentik, a different data path) belongs in
+#  a gitignored docker-compose.override.yml, which Compose merges on top of
+#  this file automatically. Template: docker-compose.override.example.yml.
+#  Keep this file generic.
+#
+#  Pinning: change `:latest` to a specific version (e.g. `:1.0.0`). Tags:
+#  https://github.com/s3ntin3l8/duomogrid/pkgs/container/duomogrid
+#
+#  Build from source instead of pulling: uncomment the `build:` block below
+#  and run `docker compose up -d --build`.
+
+services:
+  api:
+    image: ghcr.io/s3ntin3l8/duomogrid:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: duomogrid
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: file:/app/data/app.db
+      INGEST_TOKEN: ${INGEST_TOKEN:?set INGEST_TOKEN}
+      PORT: 3000
+    volumes:
+      # SQLite lives here; a named volume keeps it writable for the non-root user.
+      - duomo-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  duomo-data:
