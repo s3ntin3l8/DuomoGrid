@@ -9,6 +9,10 @@ data/
 .env.*
 !.env.example
 
+# Host-specific compose override (auto-merged); template is docker-compose.override.example.yml
+docker-compose.override.yml
+docker-compose.override.yaml
+
 /tmp/
 
 # Developer worktrees (per AGENTS.md make wt convention)

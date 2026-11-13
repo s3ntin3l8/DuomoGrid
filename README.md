@@ -9,8 +9,10 @@ Purchase costs follow the German rules (transfer tax by state, notary, land regi
 ```bash
 cp .env.example .env
 # set INGEST_TOKEN, then:
-docker compose up --build
+docker compose pull && docker compose up -d
 ```
+
+To build from source instead, uncomment the `build:` block in `docker-compose.yml` and run `docker compose up -d --build`. For a reverse proxy (Traefik, Authentik), copy `docker-compose.override.example.yml` to `docker-compose.override.yml` and edit it; that file is gitignored.
 
 The API listens on port 3000. After `npm run build`, that same port serves the desk. `GET /health` is the liveness check. Listing routes require `Authorization: Bearer $INGEST_TOKEN`.
 
