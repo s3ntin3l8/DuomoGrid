@@ -87,6 +87,7 @@ function detailsOf(value: unknown): DetailPair[] {
 const ABSENT = /^(no[_ ]information|keine angabe|n\/a)$/i;
 
 const IMAGES_MAX = 40;
+const IMAGE_URL_MAX = 2048;
 
 /** https only, and only from the two portal CDNs. Anything else is dropped, not rewritten. */
 function imagesOf(value: unknown): ImageRef[] {
@@ -96,14 +97,17 @@ function imagesOf(value: unknown): ImageRef[] {
   for (const item of value) {
     if (!item || typeof item !== "object") continue;
     const body = item as Record<string, unknown>;
+    const raw = String(body.url ?? "");
+    if (raw.length > IMAGE_URL_MAX) continue;
     let url: URL;
     try {
-      url = new URL(String(body.url ?? ""));
+      url = new URL(raw);
     } catch {
       continue;
     }
     if (url.protocol !== "https:" || !(IMAGE_HOSTS as readonly string[]).includes(url.hostname)) continue;
-    if (url.username || url.password) continue;
+    // The desk's CSP allows the host on its default port only, so another port is a broken image, not a CDN URL.
+    if (url.username || url.password || url.port) continue;
     const href = url.toString();
     if (seen.has(href)) continue;
     seen.add(href);
@@ -285,6 +289,10 @@ export function parseIngest(input: unknown): IngestResult {
   const coldRent = looseNumber(body.coldRentEur);
   const title = String(body.title ?? "").replace(/\s+/g, " ").trim() || "Listing";
   const provided = new Set<ExtraKey>(EXTRA_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(body, key)));
+  const images = imagesOf(body.images);
+  // A list in which every URL was refused (a changed CDN host, one stray entry) must not blank stored images.
+  // Only an explicit empty list says "there are none".
+  if (images.length === 0 && Array.isArray(body.images) && body.images.length > 0) provided.delete("images");
   const point = pointOf(body.latitude ?? body.lat ?? body.geoLat, body.longitude ?? body.lng ?? body.lon ?? body.geoLng ?? body.geoLong, body.locationPrecision);
   return {
     ok: true,
@@ -343,7 +351,7 @@ export function parseIngest(input: unknown): IngestResult {
       portalMarketHighEurPerM2: positiveNumber(body.portalMarketHighEurPerM2),
       description: descriptionOf(body.description),
       details: detailsOf(body.details),
-      images: imagesOf(body.images),
+      images,
     },
     provided,
   };

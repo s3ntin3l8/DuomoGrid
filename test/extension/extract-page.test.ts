@@ -203,10 +203,10 @@ describe("extract a saved exposé document", () => {
     expect(description.object).toBe("Helle Wohnung.\n\nDie Wohnung wurde ca. im Jahr 2015 renoviert. Nicht vermietet.");
     expect(description.location).toBe("Ruhige Lage am Ortsrand.");
     expect(description.furnishing).toContain("Pkw-Stellplatz");
-    // Photos and the floor plan are separated. The extension keeps what the page lists; the server filters hosts.
+    // Photos and the floor plan are separated. A picture from another host is left out here as well as on the server.
     const images = listing.images as { url: string; caption: string | null; kind: string }[];
     expect(images.filter((image) => image.kind === "floorplan").map((image) => image.caption)).toEqual(["1. Obergeschoss"]);
-    expect(images.filter((image) => image.kind === "photo").map((image) => image.caption)).toEqual(["Titelbild", "Küche", "Elsewhere"]);
+    expect(images.filter((image) => image.kind === "photo").map((image) => image.caption)).toEqual(["Titelbild", "Küche"]);
     const details = listing.details as { label: string; value: string }[];
     expect(details).toContainEqual({ label: "Außenbereich", value: "Außen-Stellplatz" });
     expect(details).toContainEqual({ label: "Energieträger", value: "Pellets" });

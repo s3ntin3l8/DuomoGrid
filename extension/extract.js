@@ -434,6 +434,8 @@
   }
 
   const IMAGES_MAX = 40;
+  /** Same hosts as IMAGE_HOSTS in src/domain/types.ts. The server is the gate; this keeps a stray URL out of the payload. */
+  const IMAGE_HOSTS = ["pictures.immobilienscout24.de", "mms.immowelt.de"];
 
   /** Same picture, different size variant: key on the id in the path when there is one. */
   function imageKey(url) {
@@ -444,6 +446,11 @@
   function addImage(list, seen, url, caption, kind) {
     const href = typeof url === "string" ? url.trim() : "";
     if (!/^https:\/\//.test(href) || list.length >= IMAGES_MAX) return;
+    try {
+      if (!IMAGE_HOSTS.includes(new URL(href).hostname)) return;
+    } catch {
+      return;
+    }
     const key = imageKey(href);
     if (seen.has(key)) return;
     seen.add(key);

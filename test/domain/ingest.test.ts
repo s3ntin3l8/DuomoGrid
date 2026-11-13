@@ -232,6 +232,36 @@ describe("parseIngest images", () => {
     expect(parsed.listing.images).toEqual([]);
   });
 
+  it("refuses a port, a trailing dot and an over-long URL, and normalises case and a backslash to the real host", () => {
+    const long = `https://mms.immowelt.de/${"a".repeat(2100)}.jpg`;
+    const parsed = parseIngest({
+      title: "Tricks",
+      images: [
+        { url: "https://mms.immowelt.de:8443/a.jpg" },
+        { url: "https://mms.immowelt.de./a.jpg" },
+        { url: long },
+        { url: "https://MMS.Immowelt.DE/Upper.jpg", caption: "upper" },
+        { url: "https:\\mms.immowelt.de\\back.jpg", caption: "back" },
+        { url: "https://mms.immowelt.de\\@evil.example/x.jpg" },
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const urls = parsed.listing.images.map((image) => new URL(image.url).host);
+    expect(urls.every((host) => host === "mms.immowelt.de")).toBe(true);
+    expect(parsed.listing.images.map((image) => image.caption)).toEqual(expect.arrayContaining(["upper", "back"]));
+    expect(parsed.listing.images.some((image) => image.url.includes(":8443") || image.url.length > 2100)).toBe(false);
+  });
+
+  it("does not count a list of only refused URLs as provided, but does count an explicit empty list", () => {
+    const refused = parseIngest({ title: "Refused", images: [{ url: "https://evil.example/x.jpg" }] });
+    const empty = parseIngest({ title: "Empty", images: [] });
+    expect(refused.ok && empty.ok).toBe(true);
+    if (!refused.ok || !empty.ok) return;
+    expect(refused.provided.has("images")).toBe(false);
+    expect(empty.provided.has("images")).toBe(true);
+  });
+
   it("caps the list at 40", () => {
     const images = Array.from({ length: 60 }, (_, index) => ({ url: `https://mms.immowelt.de/${index}.jpg` }));
     const parsed = parseIngest({ title: "Many", images });

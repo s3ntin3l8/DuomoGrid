@@ -1067,6 +1067,9 @@ describe("listings", () => {
     await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, images: [plan, photo] } });
     await app.inject({ method: "POST", url: "/listings", headers, payload: base });
     expect((await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json().listing.images).toHaveLength(2);
+    // A save in which every URL was refused (a changed CDN host) is not a statement that there are none.
+    await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, images: [{ url: "https://evil.example/x.jpg" }] } });
+    expect((await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json().listing.images).toHaveLength(2);
     await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, images: [] } });
     expect((await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json().listing.images).toEqual([]);
     await app.close();
