@@ -119,6 +119,26 @@ describe("extract a saved exposé document", () => {
       rentedOut: false,
     });
     expect(String(listing.snippet)).toContain("Ruhige Wohnung im Testdorf");
+    expect(listing).toMatchObject({
+      heatingSystem: "Fußbodenheizung",
+      parkingSpaces: 2,
+      parkingType: "outdoor",
+      parkingPriceEur: 10000,
+      bathrooms: 2,
+      bedrooms: 3,
+      availableFrom: "sofort",
+      energySource: null,
+      listedAt: null,
+      portalPreviousPriceEur: null,
+    });
+    const description = listing.description as Record<string, string | null>;
+    expect(description.object).toBe("Ruhige Wohnung im Testdorf.\n\nNicht vermietet, sofort frei.");
+    expect(description.furnishing).toContain("Fußbodenheizung");
+    expect(description.location).toBe("Ruhige Lage.");
+    expect(description.other).toBe("Provision siehe Expose.");
+    const details = listing.details as { label: string; value: string }[];
+    expect(details).toContainEqual({ label: "Garage/ Stellplatz-Kaufpreis", value: "10.000 €" });
+    expect(details).toContainEqual({ label: "Energieausweistyp", value: "Bedarfsausweis" });
   });
 
   it("reads the current Immowelt layout from the double-encoded JSON, with the URL id and a polygon centre", () => {
@@ -154,7 +174,28 @@ describe("extract a saved exposé document", () => {
       floor: "1. Geschoss/2 Geschossen",
       rentedOut: false,
     });
-    expect(listing.features).toEqual(["Keller", "Garten"]);
+    expect(listing.features).toEqual(["Keller", "1 Badezimmer", "Garten", "Außen-Stellplatz"]);
+    expect(listing).toMatchObject({
+      heatingSystem: "Zentralheizung",
+      energySource: "Pellets",
+      parkingSpaces: 1,
+      parkingType: "outdoor",
+      parkingPriceEur: null,
+      bathrooms: 1,
+      bedrooms: 2,
+      listedAt: "2026-10-01T10:00:00.000Z",
+      portalPreviousPriceEur: 270000,
+      portalMarketEurPerM2: 3000,
+      portalMarketLowEurPerM2: 2400,
+      portalMarketHighEurPerM2: 3600,
+    });
+    const description = listing.description as Record<string, string | null>;
+    expect(description.object).toBe("Helle Wohnung.\n\nDie Wohnung wurde ca. im Jahr 2015 renoviert. Nicht vermietet.");
+    expect(description.location).toBe("Ruhige Lage am Ortsrand.");
+    expect(description.furnishing).toContain("Pkw-Stellplatz");
+    const details = listing.details as { label: string; value: string }[];
+    expect(details).toContainEqual({ label: "Außenbereich", value: "Außen-Stellplatz" });
+    expect(details).toContainEqual({ label: "Energieträger", value: "Pellets" });
   });
 
   it("treats a missing showFullAddress as approximate, and ignores a point the portal marks unavailable", () => {

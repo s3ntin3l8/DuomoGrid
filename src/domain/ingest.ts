@@ -1,7 +1,122 @@
 import { parseState } from "./reference.js";
-import type { EnergyCert, ListingInput, Offer, PropertyType, Source } from "./types.js";
+import type { DetailPair, EnergyCert, ListingDescription, ListingInput, Offer, ParkingType, PropertyType, Source } from "./types.js";
 
-export type IngestResult = { ok: true; listing: ListingInput } | { ok: false; error: string };
+/** Keys added after the first extension release. A body that lacks one keeps the stored value on a re-save. */
+export const EXTRA_KEYS = [
+  "heatingSystem",
+  "energySource",
+  "parkingSpaces",
+  "parkingType",
+  "parkingPriceEur",
+  "bathrooms",
+  "bedrooms",
+  "availableFrom",
+  "listedAt",
+  "portalPreviousPriceEur",
+  "portalMarketEurPerM2",
+  "portalMarketLowEurPerM2",
+  "portalMarketHighEurPerM2",
+  "description",
+  "details",
+] as const;
+export type ExtraKey = (typeof EXTRA_KEYS)[number];
+
+export type IngestResult =
+  | { ok: true; listing: ListingInput; provided: ReadonlySet<ExtraKey> }
+  | { ok: false; error: string };
+
+const LONG_TEXT_MAX = 6000;
+const DETAIL_PAIRS_MAX = 40;
+
+function positiveNumber(value: unknown): number | null {
+  const parsed = looseNumber(value);
+  return parsed != null && parsed > 0 ? parsed : null;
+}
+
+function count(value: unknown, max: number): number | null {
+  const parsed = looseNumber(value);
+  return parsed != null && Number.isInteger(parsed) && parsed > 0 && parsed <= max ? parsed : null;
+}
+
+/** Paragraphs stay as published. Control characters and runs of blank lines do not. */
+function longText(value: unknown): string | null {
+  if (value == null) return null;
+  // Keep tab and newline, drop every other control character.
+  const clean = Array.from(String(value).replace(/\r\n?/g, "\n"))
+    .filter((char) => {
+      const code = char.charCodeAt(0);
+      return code >= 32 || code === 9 || code === 10;
+    })
+    .join("");
+  const text = clean
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, LONG_TEXT_MAX);
+  return text || null;
+}
+
+function descriptionOf(value: unknown): ListingDescription | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  const result = {
+    object: longText(body.object),
+    furnishing: longText(body.furnishing),
+    location: longText(body.location),
+    other: longText(body.other),
+  };
+  return Object.values(result).some((part) => part != null) ? result : null;
+}
+
+function detailsOf(value: unknown): DetailPair[] {
+  if (!Array.isArray(value)) return [];
+  const pairs: DetailPair[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const label = String((item as Record<string, unknown>).label ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+    const text = String((item as Record<string, unknown>).value ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+    if (label && text) pairs.push({ label, value: text });
+    if (pairs.length >= DETAIL_PAIRS_MAX) break;
+  }
+  return pairs;
+}
+
+/** Known fuels become one canonical label so analysis can match on it. Anything else stays as published. */
+export function energySourceOf(value: unknown): string | null {
+  const raw = textOrNull(value);
+  if (!raw) return null;
+  const text = raw.toLowerCase();
+  if (text.includes("pellet")) return "Pellets";
+  if (/holz|wood|hackschnitzel/.test(text)) return "Holz";
+  if (/w(ä|ae|a)rmepumpe|heat.?pump/.test(text)) return "Wärmepumpe";
+  if (/erdw(ä|ae|a)rme|geotherm/.test(text)) return "Erdwärme";
+  if (/fernw|fern-|district/.test(text)) return "Fernwärme";
+  if (/(^|[^a-zäöü])(öl|oel|oil)([^a-zäöü]|$)|heiz(ö|oe)l/.test(text)) return "Öl";
+  if (text.includes("gas")) return "Gas";
+  if (/strom|electric|nachtspeicher|night/.test(text)) return "Strom";
+  if (text.includes("solar")) return "Solar";
+  return raw.slice(0, 60);
+}
+
+function parkingTypeOf(value: unknown): ParkingType | null {
+  const text = String(value ?? "").toLowerCase();
+  if (!text) return null;
+  if (text === "garage" || text === "underground" || text === "carport" || text === "outdoor" || text === "other") return text;
+  if (/tiefgarage|underground|tg-/.test(text)) return "underground";
+  if (text.includes("carport")) return "carport";
+  if (text.includes("garage")) return "garage";
+  if (/au(ß|ss)en|outdoor|freiplatz|stellplatz|parkplatz/.test(text)) return "outdoor";
+  return null;
+}
+
+function listedAtOf(value: unknown): string | null {
+  const text = textOrNull(value);
+  if (!text) return null;
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return null;
+  const year = date.getUTCFullYear();
+  return year >= 2000 && year <= new Date().getUTCFullYear() + 1 ? date.toISOString() : null;
+}
 
 function looseNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -130,6 +245,7 @@ export function parseIngest(input: unknown): IngestResult {
   const price = looseNumber(body.priceEur);
   const coldRent = looseNumber(body.coldRentEur);
   const title = String(body.title ?? "").replace(/\s+/g, " ").trim() || "Listing";
+  const provided = new Set<ExtraKey>(EXTRA_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(body, key)));
   const point = pointOf(body.latitude ?? body.lat ?? body.geoLat, body.longitude ?? body.lng ?? body.lon ?? body.geoLng ?? body.geoLong, body.locationPrecision);
   return {
     ok: true,
@@ -173,6 +289,22 @@ export function parseIngest(input: unknown): IngestResult {
       groundRentEur: looseNumber(body.groundRentEur),
       monument: looseBool(body.monument),
       tenantOccupied: looseBool(body.tenantOccupied ?? body.rentedOut),
+      heatingSystem: textOrNull(body.heatingSystem)?.slice(0, 80) ?? null,
+      energySource: energySourceOf(body.energySource),
+      parkingSpaces: count(body.parkingSpaces, 99),
+      parkingType: parkingTypeOf(body.parkingType),
+      parkingPriceEur: positiveNumber(body.parkingPriceEur),
+      bathrooms: count(body.bathrooms, 30),
+      bedrooms: count(body.bedrooms, 30),
+      availableFrom: textOrNull(body.availableFrom)?.slice(0, 80) ?? null,
+      listedAt: listedAtOf(body.listedAt),
+      portalPreviousPriceEur: positiveNumber(body.portalPreviousPriceEur),
+      portalMarketEurPerM2: positiveNumber(body.portalMarketEurPerM2),
+      portalMarketLowEurPerM2: positiveNumber(body.portalMarketLowEurPerM2),
+      portalMarketHighEurPerM2: positiveNumber(body.portalMarketHighEurPerM2),
+      description: descriptionOf(body.description),
+      details: detailsOf(body.details),
     },
+    provided,
   };
 }

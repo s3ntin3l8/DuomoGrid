@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   loadAssumptions,
@@ -52,6 +52,8 @@ export function App() {
 
   async function refresh(nextToken: string) {
     const [list, model] = await Promise.all([loadListings(nextToken), loadAssumptions(nextToken)]);
+    // The list is light again, so rows must ask for their detail again.
+    asked.current.clear();
     setRows(list);
     setAssumptions(model.assumptions);
     setStates(model.states);
@@ -87,23 +89,41 @@ export function App() {
   const active = activeId === "" ? null : rows.find((row) => row.id === activeId) ?? visible[0] ?? null;
   const compared = picked.map((id) => rows.find((row) => row.id === id)).filter((row): row is DeskListing => Boolean(row));
 
+  // The list leaves out the long text, and the land value is looked up on demand. Both come from the detail route,
+  // so the row on show loads it once. That covers the first row shown without a click as well.
+  const asked = useRef(new Set<string>());
+  const shownId = mode === "detail" ? (active?.id ?? null) : null;
+  const shownNeedsFull = active?.descriptionFindings == null;
+  const shownNeedsLand = active?.bodenrichtwert?.status === "unknown";
+  const shownStamp = active?.updatedAt ?? "";
+  useEffect(() => {
+    if (!shownId || !authed || (!shownNeedsFull && !shownNeedsLand)) return;
+    const key = `${shownId}:${shownStamp}`;
+    if (asked.current.has(key)) return;
+    asked.current.add(key);
+    if (shownNeedsLand) {
+      setLandPendingId(shownId);
+      setLandMissId((current) => (current === shownId ? null : current));
+    }
+    void loadListing(token, shownId)
+      .then((fresh) => {
+        setRows((current) => current.map((item) => (item.id === shownId ? fresh : item)));
+        if (!shownNeedsLand) return;
+        setLandPendingId((current) => (current === shownId ? null : current));
+        if (fresh.bodenrichtwert?.status === "unknown") setLandMissId(shownId);
+      })
+      .catch(() => {
+        asked.current.delete(key);
+        if (!shownNeedsLand) return;
+        setLandPendingId((current) => (current === shownId ? null : current));
+        setLandMissId(shownId);
+      });
+  }, [shownId, shownStamp, shownNeedsFull, shownNeedsLand, authed, token]);
+
   function open(id: string) {
     setActiveId(id);
     setMode("detail");
     setReading(true);
-    const row = rows.find((item) => item.id === id);
-    if (row?.bodenrichtwert?.status !== "unknown") return;
-    setLandPendingId(id);
-    setLandMissId((current) => (current === id ? null : current));
-    void loadListing(token, id)
-      .then((fresh) => {
-        setRows((current) => current.map((item) => (item.id === id ? fresh : item)));
-        setLandPendingId((current) => (current === id ? null : current));
-      })
-      .catch(() => {
-        setLandPendingId((current) => (current === id ? null : current));
-        setLandMissId(id);
-      });
   }
 
   function togglePick(id: string) {

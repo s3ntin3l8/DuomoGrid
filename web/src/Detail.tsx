@@ -150,7 +150,7 @@ export function Detail({
           {listing.energyClass ? `Class ${listing.energyClass}` : "No class"}
           {listing.energyKwh != null ? ` · ${num(listing.energyKwh)} kWh/m²·a` : ""}
           {listing.energyCert ? ` · ${listing.energyCert} certificate` : ""}
-          {listing.heating ? ` · ${listing.heating}` : ""}
+          {heatingText(listing) ? ` · ${heatingText(listing)}` : ""}
           {listing.yearBuilt ? ` · built ${listing.yearBuilt}` : ""}
         </p>
         {analysis.subscores.some((part) => part.applicable) ? (
@@ -165,6 +165,9 @@ export function Detail({
           </div>
         ) : null}
       </section>
+      <Facts row={row} />
+      <Findings row={row} />
+      <DescriptionText row={row} />
       {row.observations.length > 1 ? (
         <section className="block">
           <h3>Price history</h3>
@@ -190,6 +193,124 @@ export function Detail({
         <RemoveListing key={row.id} onRemove={onRemove} />
       </section>
     </article>
+  );
+}
+
+function heatingText(listing: DeskListing["listing"]): string {
+  const parts = [listing.heatingSystem, listing.energySource].filter(Boolean);
+  return parts.length ? parts.join(", ") : (listing.heating ?? "");
+}
+
+const PARKING_LABEL: Record<string, string> = {
+  garage: "garage",
+  underground: "underground garage",
+  carport: "carport",
+  outdoor: "outdoor space",
+  other: "parking",
+};
+
+function parkingText(listing: DeskListing["listing"]): string | null {
+  const parts: string[] = [];
+  if (listing.parkingSpaces != null) parts.push(`${listing.parkingSpaces}×`);
+  if (listing.parkingType) parts.push(PARKING_LABEL[listing.parkingType] ?? listing.parkingType);
+  if (listing.parkingPriceEur != null) parts.push(`+${eur(listing.parkingPriceEur)} on the price`);
+  return parts.length ? parts.join(" ") : null;
+}
+
+function Facts({ row }: { row: DeskListing }) {
+  const { listing } = row;
+  const lines: [string, string][] = [];
+  const add = (label: string, value: string | null | undefined) => {
+    if (value) lines.push([label, value]);
+  };
+  add("Bedrooms", listing.bedrooms != null ? String(listing.bedrooms) : null);
+  add("Bathrooms", listing.bathrooms != null ? String(listing.bathrooms) : null);
+  add("Parking", parkingText(listing));
+  add("Floor", listing.floor);
+  add("Condition", listing.condition);
+  add("Heating", heatingText(listing) || null);
+  add("Available from", listing.availableFrom);
+  add("On the portal since", listing.listedAt ? when(listing.listedAt) : null);
+  add("Portal's earlier price", listing.portalPreviousPriceEur != null ? eur(listing.portalPreviousPriceEur) : null);
+  if (listing.portalMarketEurPerM2 != null) {
+    const range =
+      listing.portalMarketLowEurPerM2 != null && listing.portalMarketHighEurPerM2 != null
+        ? ` (${eur(listing.portalMarketLowEurPerM2)} to ${eur(listing.portalMarketHighEurPerM2)})`
+        : "";
+    add("Portal's own estimate", `${eur(listing.portalMarketEurPerM2)} / m²${range}`);
+  }
+  const groups = new Map<string, string[]>();
+  for (const pair of listing.details) groups.set(pair.label, [...(groups.get(pair.label) ?? []), pair.value]);
+  if (lines.length === 0 && groups.size === 0) return null;
+  return (
+    <section className="block">
+      <h3>Details</h3>
+      {lines.length > 0 ? (
+        <dl>
+          {lines.map(([label, value]) => (
+            <Line key={label} label={label} value={value} />
+          ))}
+        </dl>
+      ) : null}
+      {listing.portalMarketEurPerM2 != null ? (
+        <p className="meta">The portal's estimate is its own model for similar objects. It does not say which area it covers, and it is not part of the score.</p>
+      ) : null}
+      {groups.size > 0 ? (
+        <details className="fold">
+          <summary>Everything the exposé lists</summary>
+          <dl>
+            {[...groups.entries()].map(([label, values]) => (
+              <Line key={label} label={label} value={values.join(" · ")} />
+            ))}
+          </dl>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function Findings({ row }: { row: DeskListing }) {
+  const items = row.descriptionFindings?.items ?? [];
+  if (items.length === 0) return null;
+  return (
+    <section className="block">
+      <h3>Read from the description</h3>
+      <ul className="findings">
+        {items.map((item) => (
+          <li key={item.key}>
+            <strong>{item.label}</strong>
+            <span className="meta">{item.snippet}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="meta">Picked out of the seller's text. Sentences that say "no" or "not" are skipped. Check the exposé before relying on any of it.</p>
+    </section>
+  );
+}
+
+const DESCRIPTION_PARTS = [
+  ["object", "Description"],
+  ["furnishing", "Features"],
+  ["location", "Location"],
+  ["other", "Other"],
+] as const;
+
+function DescriptionText({ row }: { row: DeskListing }) {
+  const description = row.listing.description;
+  if (!description) return null;
+  const parts = DESCRIPTION_PARTS.filter(([key]) => description[key]);
+  if (parts.length === 0) return null;
+  return (
+    <section className="block">
+      <h3>Seller's text</h3>
+      {parts.map(([key, label]) => (
+        <details className="fold" key={key} open={key === "object"}>
+          <summary>{label}</summary>
+          <p className="prose">{description[key]}</p>
+        </details>
+      ))}
+      <p className="meta">As published, in German.</p>
+    </section>
   );
 }
 

@@ -4,14 +4,24 @@ import { installIngestGuard } from "../auth/guard.js";
 import { normalizeAssumptions } from "../domain/assumptions.js";
 import { analyze } from "../domain/analyze.js";
 import { cohortSummary, rentAgainstBuy, type CohortRow } from "../domain/compare.js";
-import { exactPoint, parseIngest } from "../domain/ingest.js";
+import { describeFindings } from "../domain/describe.js";
+import { exactPoint, parseIngest, type ExtraKey } from "../domain/ingest.js";
 import { districtSaleBandFor } from "../domain/district-band.js";
 import { fetchBodenrichtwert, type Bodenrichtwert } from "../domain/bodenrichtwert.js";
 import { DEFAULT_ASSUMPTIONS, STATES } from "../domain/types.js";
-import type { Assumptions, ListingInput, Offer, PropertyType, Source } from "../domain/types.js";
+import type { Assumptions, DetailPair, ListingDescription, ListingInput, Offer, ParkingType, PropertyType, Source } from "../domain/types.js";
 import { listings, observations, settings } from "../db/schema.js";
 
 type ListingRow = typeof listings.$inferSelect;
+
+function jsonOr<T>(text: string | null, fallback: T): T {
+  if (!text) return fallback;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return fallback;
+  }
+}
 
 function asInput(row: ListingRow, priceEur: number | null): ListingInput {
   let features: string[] = [];
@@ -61,6 +71,21 @@ function asInput(row: ListingRow, priceEur: number | null): ListingInput {
     groundRentEur: row.groundRentEur,
     monument: row.monument,
     tenantOccupied: row.tenantOccupied,
+    heatingSystem: row.heatingSystem,
+    energySource: row.energySource,
+    parkingSpaces: row.parkingSpaces,
+    parkingType: (row.parkingType as ParkingType | null) ?? null,
+    parkingPriceEur: row.parkingPriceEur,
+    bathrooms: row.bathrooms,
+    bedrooms: row.bedrooms,
+    availableFrom: row.availableFrom,
+    listedAt: row.listedAt,
+    portalPreviousPriceEur: row.portalPreviousPriceEur,
+    portalMarketEurPerM2: row.portalMarketEurPerM2,
+    portalMarketLowEurPerM2: row.portalMarketLowEurPerM2,
+    portalMarketHighEurPerM2: row.portalMarketHighEurPerM2,
+    description: jsonOr<ListingDescription | null>(row.descriptionJson, null),
+    details: jsonOr<DetailPair[]>(row.detailsJson, []),
   };
 }
 
@@ -222,6 +247,38 @@ function readFacts(body: Record<string, unknown>): { ok: true; facts: FactPatch 
   return { ok: true, facts };
 }
 
+/** The observation copy of a body keeps what priced the listing, not the long text. */
+function withoutLongText(body: unknown): unknown {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body ?? {};
+  const { description: _description, details: _details, ...rest } = body as Record<string, unknown>;
+  return rest;
+}
+
+/**
+ * Columns for the fields added after the first extension release. A save that lacks a key keeps the stored value,
+ * so an extension that predates the field never blanks it. A save that carries the key, even as null, replaces it.
+ */
+function extras(listing: ListingInput, provided: ReadonlySet<ExtraKey>, existing: ListingRow | undefined) {
+  const pick = <T>(key: ExtraKey, next: T, kept: T): T => (provided.has(key) || !existing ? next : kept);
+  return {
+    heatingSystem: pick("heatingSystem", listing.heatingSystem, existing?.heatingSystem ?? null),
+    energySource: pick("energySource", listing.energySource, existing?.energySource ?? null),
+    parkingSpaces: pick("parkingSpaces", listing.parkingSpaces, existing?.parkingSpaces ?? null),
+    parkingType: pick("parkingType", listing.parkingType, existing?.parkingType ?? null),
+    parkingPriceEur: pick("parkingPriceEur", listing.parkingPriceEur, existing?.parkingPriceEur ?? null),
+    bathrooms: pick("bathrooms", listing.bathrooms, existing?.bathrooms ?? null),
+    bedrooms: pick("bedrooms", listing.bedrooms, existing?.bedrooms ?? null),
+    availableFrom: pick("availableFrom", listing.availableFrom, existing?.availableFrom ?? null),
+    listedAt: pick("listedAt", listing.listedAt, existing?.listedAt ?? null),
+    portalPreviousPriceEur: pick("portalPreviousPriceEur", listing.portalPreviousPriceEur, existing?.portalPreviousPriceEur ?? null),
+    portalMarketEurPerM2: pick("portalMarketEurPerM2", listing.portalMarketEurPerM2, existing?.portalMarketEurPerM2 ?? null),
+    portalMarketLowEurPerM2: pick("portalMarketLowEurPerM2", listing.portalMarketLowEurPerM2, existing?.portalMarketLowEurPerM2 ?? null),
+    portalMarketHighEurPerM2: pick("portalMarketHighEurPerM2", listing.portalMarketHighEurPerM2, existing?.portalMarketHighEurPerM2 ?? null),
+    descriptionJson: pick("description", listing.description ? JSON.stringify(listing.description) : null, existing?.descriptionJson ?? null),
+    detailsJson: pick("details", listing.details.length ? JSON.stringify(listing.details) : null, existing?.detailsJson ?? null),
+  };
+}
+
 export async function listingsRoute(app: FastifyInstance) {
   installIngestGuard(app, "/listings");
 
@@ -255,9 +312,16 @@ export async function listingsRoute(app: FastifyInstance) {
     return map;
   }
 
-  function present(row: ListingRow, priceMap: Map<string, number | null>, past: Map<string, { seenAt: string; priceEur: number | null }[]>, model: Assumptions) {
+  /**
+   * `full` adds the long description, the detail pairs and the findings read from the description.
+   * The list leaves them out, but analysis sees the same input either way, so a score never depends on which route asked.
+   */
+  function present(row: ListingRow, priceMap: Map<string, number | null>, past: Map<string, { seenAt: string; priceEur: number | null }[]>, model: Assumptions, full = false) {
     const priceEur = priceMap.get(row.id) ?? null;
     const input = asInput(row, priceEur);
+    const findings = describeFindings(input.description);
+    // A renovation year read from the text only fills a gap. A stored year always wins.
+    const analysed = { ...input, yearRefurbished: input.yearRefurbished ?? findings.renovatedYear };
     const districtSaleBand = districtSaleBandFor({
       offer: row.offer,
       propertyType: row.propertyType,
@@ -266,7 +330,7 @@ export async function listingsRoute(app: FastifyInstance) {
       state: row.state,
     });
     const bodenrichtwert = bodenrichtwertView(row);
-    const analysis = analyze(input, model, { bodenrichtwert: asBodenrichtwert(bodenrichtwert), districtSaleBand });
+    const analysis = analyze(analysed, model, { bodenrichtwert: asBodenrichtwert(bodenrichtwert), districtSaleBand });
     const everyone = app.db
       .select()
       .from(listings)
@@ -278,7 +342,8 @@ export async function listingsRoute(app: FastifyInstance) {
       status: row.status,
       notes: row.notes,
       updatedAt: row.updatedAt,
-      listing: input,
+      listing: full ? input : { ...input, description: null, details: [] },
+      descriptionFindings: full ? findings : null,
       analysis,
       observations: past.get(row.id) ?? [],
       cohort: cohortSummary(subject, everyone),
@@ -339,7 +404,7 @@ export async function listingsRoute(app: FastifyInstance) {
     if (!row) return reply.code(404).send({ error: "Listing not found." });
     const stored = await ensureBodenrichtwert(row);
     const ctx = context();
-    return present(stored, ctx.priceMap, ctx.past, ctx.model);
+    return present(stored, ctx.priceMap, ctx.past, ctx.model, true);
   });
 
   app.patch<{
@@ -430,7 +495,7 @@ export async function listingsRoute(app: FastifyInstance) {
     });
     const stored = app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0];
     const ctx = context();
-    return present(stored, ctx.priceMap, ctx.past, ctx.model);
+    return present(stored, ctx.priceMap, ctx.past, ctx.model, true);
   });
 
   app.delete<{ Params: { id: string } }>("/listings/:id", async (request, reply) => {
@@ -447,6 +512,7 @@ export async function listingsRoute(app: FastifyInstance) {
     const parsed = parseIngest(request.body);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
     const listing = parsed.listing;
+    const provided = parsed.provided;
     const now = new Date().toISOString();
     const rows = app.db.select().from(listings).all();
     const existing = rows.find((row) => {
@@ -502,6 +568,7 @@ export async function listingsRoute(app: FastifyInstance) {
       groundRentEur: listing.groundRentEur,
       monument: listing.monument,
       tenantOccupied: listing.tenantOccupied,
+      ...extras(listing, provided, existing),
       ...brw,
       notes: existing?.notes ?? "",
       status: existing?.status ?? "open",
@@ -523,7 +590,7 @@ export async function listingsRoute(app: FastifyInstance) {
         coldRentEur: listing.coldRentEur,
         warmRentEur: listing.warmRentEur,
         condoFeeEur: listing.condoFeeEur,
-        rawJson: JSON.stringify(request.body ?? {}),
+        rawJson: JSON.stringify(withoutLongText(request.body)),
       }).run();
     }
     const stored = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];

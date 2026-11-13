@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseIngest } from "../../src/domain/ingest.js";
+import { energySourceOf, parseIngest } from "../../src/domain/ingest.js";
 
 describe("parseIngest location", () => {
   it("keeps an in-range point and marks it exact", () => {
@@ -73,5 +73,96 @@ describe("parseIngest location", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.listing.locationPrecision).toBeNull();
+  });
+});
+
+describe("parseIngest details", () => {
+  it("reads the added fields and records which keys the body carried", () => {
+    const parsed = parseIngest({
+      title: "Details",
+      heatingSystem: "Zentralheizung",
+      energySource: "Pellet-Heizung",
+      parkingSpaces: "2",
+      parkingType: "Tiefgarage",
+      parkingPriceEur: "10.000 €",
+      bathrooms: 2,
+      bedrooms: 3,
+      availableFrom: "sofort",
+      listedAt: "2026-10-30T16:50:15.585Z",
+      portalPreviousPriceEur: "329.000 €",
+      portalMarketEurPerM2: 3730,
+      portalMarketLowEurPerM2: "2.779",
+      portalMarketHighEurPerM2: "4.514",
+      description: { object: "Helle Wohnung.\r\n\r\n\r\n\r\nRuhig.", location: " Lage " },
+      details: [{ label: "Heizungsart", value: "Zentralheizung" }, { label: "", value: "x" }, { label: "y", value: "" }],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing).toMatchObject({
+      heatingSystem: "Zentralheizung",
+      energySource: "Pellets",
+      parkingSpaces: 2,
+      parkingType: "underground",
+      parkingPriceEur: 10000,
+      bathrooms: 2,
+      bedrooms: 3,
+      availableFrom: "sofort",
+      listedAt: "2026-10-30T16:50:15.585Z",
+      portalPreviousPriceEur: 329000,
+      portalMarketEurPerM2: 3730,
+      portalMarketLowEurPerM2: 2779,
+      portalMarketHighEurPerM2: 4514,
+      description: { object: "Helle Wohnung.\n\nRuhig.", furnishing: null, location: "Lage", other: null },
+      details: [{ label: "Heizungsart", value: "Zentralheizung" }],
+    });
+    expect(parsed.provided.has("parkingSpaces")).toBe(true);
+    expect(parsed.provided.has("bedrooms")).toBe(true);
+  });
+
+  it("stores unknown and out-of-range values as null, never as zero", () => {
+    const parsed = parseIngest({
+      title: "Bad values",
+      parkingSpaces: 0,
+      parkingPriceEur: 0,
+      bathrooms: 1.5,
+      bedrooms: 400,
+      listedAt: "1970-01-01",
+      portalPreviousPriceEur: -5,
+      parkingType: "somewhere",
+      description: { object: "   " },
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing).toMatchObject({
+      parkingSpaces: null,
+      parkingPriceEur: null,
+      bathrooms: null,
+      bedrooms: null,
+      listedAt: null,
+      portalPreviousPriceEur: null,
+      parkingType: null,
+      description: null,
+      details: [],
+    });
+  });
+
+  it("marks nothing as provided for a body from an older extension", () => {
+    const parsed = parseIngest({ title: "Old", priceEur: 1 });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.provided.size).toBe(0);
+  });
+
+  it("maps a fuel to one canonical label and keeps an unknown one as published", () => {
+    expect(energySourceOf("Pellets")).toBe("Pellets");
+    expect(energySourceOf("Luft-Wasser-Wärmepumpe")).toBe("Wärmepumpe");
+    expect(energySourceOf("district_heating")).toBe("Fernwärme");
+    expect(energySourceOf("Heizöl")).toBe("Öl");
+    expect(energySourceOf("oil")).toBe("Öl");
+    expect(energySourceOf("boiler")).toBe("boiler");
+    expect(energySourceOf("Erdgas")).toBe("Gas");
+    expect(energySourceOf("Nachtspeicher")).toBe("Strom");
+    expect(energySourceOf("Brennstoffzelle")).toBe("Brennstoffzelle");
+    expect(energySourceOf("")).toBeNull();
   });
 });
