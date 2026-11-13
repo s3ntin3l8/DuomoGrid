@@ -74,7 +74,7 @@ export function App() {
       .sort((left, right) => (right.analysis.score ?? -1) - (left.analysis.score ?? -1));
   }, [rows, offer, status]);
 
-  const active = rows.find((row) => row.id === activeId) ?? visible[0] ?? null;
+  const active = activeId === "" ? null : rows.find((row) => row.id === activeId) ?? visible[0] ?? null;
   const compared = picked.map((id) => rows.find((row) => row.id === id)).filter((row): row is DeskListing => Boolean(row));
 
   function open(id: string) {
@@ -265,6 +265,8 @@ export function App() {
                 await removeListing(token, id);
                 setRows((current) => current.filter((row) => row.id !== id));
                 setPicked((current) => current.filter((item) => item !== id));
+                setActiveId("");
+                setReading(false);
                 setError("");
               } catch (reason: unknown) {
                 setError(reason instanceof Error ? reason.message : "Could not remove the listing.");
@@ -277,12 +279,19 @@ export function App() {
           />
         ) : null}
         {mode === "detail" && !active ? (
-          <section className="empty">
-            <h2 className="mark">Nothing saved yet.</h2>
-            <p className="lede">
-              Open one exposé on ImmoScout24 or Immowelt and use the extension. It sends that page here. This desk does not go looking for listings.
-            </p>
-          </section>
+          rows.length === 0 ? (
+            <section className="empty">
+              <h2 className="mark">Nothing saved yet.</h2>
+              <p className="lede">
+                Open one exposé on ImmoScout24 or Immowelt and use the extension. It sends that page here. This desk does not go looking for listings.
+              </p>
+            </section>
+          ) : (
+            <section className="empty">
+              <h2 className="mark">Listing removed.</h2>
+              <p className="lede">Pick another one from the list. Pass still only changes the status.</p>
+            </section>
+          )
         ) : null}
       </main>
     </div>

@@ -181,13 +181,13 @@ export function Detail({
       </section>
       <section className="block">
         <h3>Correct</h3>
-        <p className="meta">A later save from the exposé replaces these.</p>
+        <p className="meta">A later save from the exposé replaces these. Warm rent and the condo fee stay as saved.</p>
         <CorrectForm row={row} states={states} onCorrect={onCorrect} />
       </section>
       <section className="block">
         <h3>Remove</h3>
         <p className="meta">Pass keeps the listing. Remove deletes it and its price history.</p>
-        <RemoveListing onRemove={onRemove} />
+        <RemoveListing key={row.id} onRemove={onRemove} />
       </section>
     </article>
   );
@@ -307,11 +307,12 @@ const PROPERTY_OPTIONS = [
 
 const ENERGY_OPTIONS = ["A+", "A", "B", "C", "D", "E", "F", "G", "H"];
 
-function numberOrNull(value: FormDataEntryValue | null): number | null {
+function readNumber(value: FormDataEntryValue | null, label: string): number | null {
   const text = String(value ?? "").trim();
   if (!text) return null;
   const parsed = Number(text);
-  return Number.isFinite(parsed) ? parsed : null;
+  if (!Number.isFinite(parsed)) throw new Error(`${label} must be a number, or empty.`);
+  return parsed;
 }
 
 function CorrectForm({
@@ -332,20 +333,26 @@ function CorrectForm({
       onSubmit={(event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
+        let body: ListingPatch;
+        try {
+          body = {
+            city: String(data.get("city") ?? ""),
+            district: String(data.get("district") ?? ""),
+            state: String(data.get("state") ?? "") || null,
+            propertyType: String(data.get("propertyType") ?? ""),
+            livingAreaM2: readNumber(data.get("livingAreaM2"), "Living area"),
+            plotAreaM2: readNumber(data.get("plotAreaM2"), "Plot area"),
+            rooms: readNumber(data.get("rooms"), "Rooms"),
+            yearBuilt: readNumber(data.get("yearBuilt"), "Year built"),
+            energyClass: String(data.get("energyClass") ?? "") || null,
+            priceEur: readNumber(data.get("priceEur"), "Price"),
+          };
+        } catch (reason: unknown) {
+          setError(reason instanceof Error ? reason.message : "Could not save.");
+          return;
+        }
         setBusy(true);
         setError("");
-        const body: ListingPatch = {
-          city: String(data.get("city") ?? ""),
-          district: String(data.get("district") ?? ""),
-          state: String(data.get("state") ?? "") || null,
-          propertyType: String(data.get("propertyType") ?? ""),
-          livingAreaM2: numberOrNull(data.get("livingAreaM2")),
-          plotAreaM2: numberOrNull(data.get("plotAreaM2")),
-          rooms: numberOrNull(data.get("rooms")),
-          yearBuilt: numberOrNull(data.get("yearBuilt")),
-          energyClass: String(data.get("energyClass") ?? "") || null,
-          priceEur: numberOrNull(data.get("priceEur")),
-        };
         void onCorrect(body)
           .catch((reason: unknown) => {
             setError(reason instanceof Error ? reason.message : "Could not save.");

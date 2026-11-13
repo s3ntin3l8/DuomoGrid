@@ -391,31 +391,29 @@ export async function listingsRoute(app: FastifyInstance) {
     const nextPrice = facts.priceEur ?? null;
     const previousPrice = priceTouched ? (prices().get(row.id) ?? null) : null;
     const priceChanged = priceTouched && previousPrice !== nextPrice;
-    app.db
-      .update(listings)
-      .set({
-        notes,
-        status: nextStatus,
-        latitude,
-        longitude,
-        locationPrecision,
-        ...brw,
-        livingAreaM2: facts.livingAreaM2 !== undefined ? facts.livingAreaM2 : row.livingAreaM2,
-        plotAreaM2: facts.plotAreaM2 !== undefined ? facts.plotAreaM2 : row.plotAreaM2,
-        rooms: facts.rooms !== undefined ? facts.rooms : row.rooms,
-        city: facts.city !== undefined ? facts.city : row.city,
-        district: facts.district !== undefined ? facts.district : row.district,
-        state: facts.state !== undefined ? facts.state : row.state,
-        propertyType: facts.propertyType ?? row.propertyType,
-        yearBuilt: facts.yearBuilt !== undefined ? facts.yearBuilt : row.yearBuilt,
-        energyClass: facts.energyClass !== undefined ? facts.energyClass : row.energyClass,
-        coldRentEur: priceChanged && row.offer === "rent" ? nextPrice : row.coldRentEur,
-        updatedAt: now,
-      })
-      .where(eq(listings.id, row.id))
-      .run();
-    if (priceChanged) {
-      app.db.insert(observations).values({
+    const next = {
+      notes,
+      status: nextStatus,
+      latitude,
+      longitude,
+      locationPrecision,
+      ...brw,
+      livingAreaM2: facts.livingAreaM2 !== undefined ? facts.livingAreaM2 : row.livingAreaM2,
+      plotAreaM2: facts.plotAreaM2 !== undefined ? facts.plotAreaM2 : row.plotAreaM2,
+      rooms: facts.rooms !== undefined ? facts.rooms : row.rooms,
+      city: facts.city !== undefined ? facts.city : row.city,
+      district: facts.district !== undefined ? facts.district : row.district,
+      state: facts.state !== undefined ? facts.state : row.state,
+      propertyType: facts.propertyType ?? row.propertyType,
+      yearBuilt: facts.yearBuilt !== undefined ? facts.yearBuilt : row.yearBuilt,
+      energyClass: facts.energyClass !== undefined ? facts.energyClass : row.energyClass,
+      coldRentEur: priceChanged && row.offer === "rent" ? nextPrice : row.coldRentEur,
+      updatedAt: now,
+    };
+    app.db.transaction((tx) => {
+      tx.update(listings).set(next).where(eq(listings.id, row.id)).run();
+      if (!priceChanged) return;
+      tx.insert(observations).values({
         listingId: row.id,
         seenAt: now,
         priceEur: nextPrice,
@@ -424,7 +422,7 @@ export async function listingsRoute(app: FastifyInstance) {
         condoFeeEur: row.condoFeeEur,
         rawJson: JSON.stringify(request.body ?? {}),
       }).run();
-    }
+    });
     const stored = app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0];
     const ctx = context();
     return present(stored, ctx.priceMap, ctx.past, ctx.model);
@@ -433,8 +431,10 @@ export async function listingsRoute(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>("/listings/:id", async (request, reply) => {
     const row = app.db.select().from(listings).where(eq(listings.id, request.params.id)).all()[0];
     if (!row) return reply.code(404).send({ error: "Listing not found." });
-    app.db.delete(observations).where(eq(observations.listingId, row.id)).run();
-    app.db.delete(listings).where(eq(listings.id, row.id)).run();
+    app.db.transaction((tx) => {
+      tx.delete(observations).where(eq(observations.listingId, row.id)).run();
+      tx.delete(listings).where(eq(listings.id, row.id)).run();
+    });
     return { deleted: true };
   });
 

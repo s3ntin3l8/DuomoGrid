@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../../src/app.js";
-import { listings } from "../../src/db/schema.js";
+import { listings, observations } from "../../src/db/schema.js";
 
 describe("listings", () => {
   afterEach(() => {
@@ -639,6 +639,7 @@ describe("listings", () => {
       const removed = await app.inject({ method: "DELETE", url: `/listings/${id}`, headers });
       expect(removed.statusCode).toBe(200);
       expect(removed.json()).toEqual({ deleted: true });
+      expect(app.db.select().from(observations).where(eq(observations.listingId, id)).all()).toEqual([]);
       const gone = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
       expect(gone.statusCode).toBe(404);
       const listed = await app.inject({ method: "GET", url: "/listings", headers });
@@ -664,6 +665,7 @@ describe("listings", () => {
         externalId: "iw-1",
         title: "Rental",
         priceEur: 1000,
+        warmRentEur: 1400,
         livingAreaM2: 50,
         city: "Darmstadt",
         state: "HE",
@@ -687,6 +689,7 @@ describe("listings", () => {
     expect(priced.json().listing.offer).toBe("rent");
     expect(priced.json().listing.priceEur).toBe(1200);
     expect(priced.json().listing.coldRentEur).toBe(1200);
+    expect(priced.json().listing.warmRentEur).toBe(1400);
     expect(priced.json().analysis.rentPerM2).toBe(24);
     expect(priced.json().analysis.score).toBeNull();
     expect(priced.json().observations).toHaveLength(2);
@@ -708,6 +711,107 @@ describe("listings", () => {
     });
     expect(zero.statusCode).toBe(400);
     expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.coldRentEur).toBe(1200);
+    await app.close();
+  });
+
+  it("accepts the other fact fields and rejects a bad correction before writing", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const created = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: {
+        v: 1,
+        source: "immobilienscout24",
+        sourceUrl: "https://www.immobilienscout24.de/expose/902",
+        externalId: "902",
+        title: "House",
+        priceEur: 300000,
+        livingAreaM2: 120,
+        city: "Landshut",
+        state: "BY",
+        propertyType: "apartment",
+        listingKind: "sale",
+        latitude: "48.537",
+        longitude: "12.152",
+      },
+    });
+    const id = created.json().id as string;
+    const missing = await app.inject({
+      method: "PATCH",
+      url: "/listings/missing-id",
+      headers,
+      payload: { city: "X" },
+    });
+    expect(missing.statusCode).toBe(404);
+
+    const filled = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers,
+      payload: {
+        plotAreaM2: 520,
+        rooms: 3.5,
+        district: " Altstadt ",
+        state: "HE",
+        propertyType: "house",
+        yearBuilt: 1910,
+        energyClass: "A+",
+        city: " Darmstadt ",
+      },
+    });
+    expect(filled.statusCode).toBe(200);
+    expect(filled.json().listing).toMatchObject({
+      plotAreaM2: 520,
+      rooms: 3.5,
+      district: "Altstadt",
+      state: "HE",
+      propertyType: "house",
+      yearBuilt: 1910,
+      energyClass: "A+",
+      city: "Darmstadt",
+      latitude: 48.537,
+      offer: "buy",
+    });
+    expect(filled.json().analysis.transferTaxPercent).toBe(6);
+    expect(filled.json().bodenrichtwert.status).toBe("unknown");
+
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers,
+      payload: { plotAreaM2: "", rooms: null, district: "   ", state: "", yearBuilt: "", energyClass: null, livingAreaM2: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().listing).toMatchObject({
+      plotAreaM2: null,
+      rooms: null,
+      district: null,
+      state: null,
+      yearBuilt: null,
+      energyClass: null,
+      livingAreaM2: null,
+    });
+    expect(cleared.json().listing.latitude).toBe(48.537);
+
+    const both = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers,
+      payload: { clearPoint: true, latitude: 49, longitude: 8 },
+    });
+    expect(both.statusCode).toBe(400);
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.latitude).toBe(48.537);
+
+    for (const payload of [{ city: 12 }, { district: 4 }, { plotAreaM2: -3 }, { rooms: 0 }, { yearBuilt: 2101 }, { energyClass: "a" }]) {
+      const rejected = await app.inject({ method: "PATCH", url: `/listings/${id}`, headers, payload });
+      expect(rejected.statusCode).toBe(400);
+    }
+    const row = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+    expect(row?.city).toBe("Darmstadt");
+    expect(row?.latitude).toBe(48.537);
     await app.close();
   });
 });
