@@ -9,7 +9,8 @@
 #
 #  Host-specific setup (Traefik, Authentik, a different data path) belongs in
 #  a gitignored docker-compose.override.yml, which Compose merges on top of
-#  this file automatically. Template: docker-compose.override.example.yml.
+#  this file automatically. Compose >= 2.24 is required: `env_file` with
+#  `required: false` below, and `ports: !reset []` in an override.
 #  Keep this file generic.
 #
 #  Image tags: `:latest` is the newest release (it exists once the first

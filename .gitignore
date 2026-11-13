@@ -9,7 +9,7 @@ data/
 .env.*
 !.env.example
 
-# Host-specific compose override (auto-merged); template is docker-compose.override.example.yml
+# Host-specific compose override (auto-merged)
 docker-compose.override.yml
 docker-compose.override.yaml
 
