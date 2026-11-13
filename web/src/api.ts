@@ -37,6 +37,10 @@ export type DeskListing = {
     district: string | null;
     postalCode: string | null;
     state: string | null;
+    street: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    locationPrecision: "exact" | null;
     source: string;
     sourceUrl: string;
     propertyType: string;

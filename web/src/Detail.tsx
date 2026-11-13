@@ -41,6 +41,11 @@ export function Detail({
       </p>
       <h2>{listing.title}</h2>
       <p className="meta">{place || "Place not detected"}</p>
+      {listing.latitude != null && listing.longitude != null ? (
+        <p className="meta">
+          {[listing.street, `${listing.latitude.toFixed(5)}, ${listing.longitude.toFixed(5)}`].filter(Boolean).join(" · ")}
+        </p>
+      ) : null}
       <div className="hero">
         <div>
           <p className="price">{eur(listing.priceEur)}</p>

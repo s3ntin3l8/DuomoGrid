@@ -45,6 +45,7 @@ describe("listings", () => {
     expect(created.json().analysis.transferTaxEur).toBe(27900);
     expect(created.json().listing.offer).toBe("buy");
     expect(created.json().listing.condoFeeEur).toBe(285);
+    expect(created.json().listing.latitude).toBeNull();
 
     const again = await app.inject({
       method: "POST",
@@ -63,6 +64,38 @@ describe("listings", () => {
     });
     expect(listed.statusCode).toBe(200);
     expect(listed.json()).toHaveLength(1);
+
+    const moved = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers: { authorization: "Bearer test-token" },
+      payload: { ...payload, latitude: "48.537", longitude: "12.152", street: "Altstadt 12", locationPrecision: "city" },
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json().listing.latitude).toBe(48.537);
+    expect(moved.json().listing.longitude).toBe(12.152);
+    expect(moved.json().listing.locationPrecision).toBe("exact");
+    expect(moved.json().listing.street).toBe("Altstadt 12");
+
+    const half = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers: { authorization: "Bearer test-token" },
+      payload: { ...payload, latitude: 47.1 },
+    });
+    expect(half.json().listing.latitude).toBe(48.537);
+    expect(half.json().listing.longitude).toBe(12.152);
+    expect(half.json().listing.street).toBe("Altstadt 12");
+
+    const omitted = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers: { authorization: "Bearer test-token" },
+      payload,
+    });
+    expect(omitted.json().listing.latitude).toBe(48.537);
+    expect(omitted.json().listing.street).toBe("Altstadt 12");
+    expect(omitted.json().notes).toBe("");
 
     const patched = await app.inject({
       method: "PATCH",

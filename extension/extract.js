@@ -10,6 +10,17 @@
       .replace(/[^a-z0-9]/g, "");
   }
 
+  function parseCoordinate(raw) {
+    if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
+    if (raw == null) return null;
+    let s = String(raw).trim().replace(/\s/g, "").replace(/°/g, "");
+    if (!s) return null;
+    if (s.includes(",") && !s.includes(".")) s = s.replace(",", ".");
+    if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
   function parseDeNumber(raw) {
     if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
     if (raw == null) return null;
@@ -381,6 +392,14 @@
       .replace(/\s+\|\s+Immowelt.*$/i, "")
       .trim()
       .slice(0, 180) || "Listing";
+    const latitude = parseCoordinate(pick(records, ["latitude", "geolat", "objlat", "wgs84latitude"]));
+    const longitude = parseCoordinate(pick(records, ["longitude", "geolong", "geolng", "objlong", "objlng", "wgs84longitude"]));
+    const hasPoint = latitude != null && longitude != null
+      && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
+      && !(Math.abs(latitude) < 1e-8 && Math.abs(longitude) < 1e-8);
+    const streetName = String(pick(records, ["streetaddress", "street", "objstreet", "strasse"]) ?? "").trim();
+    const houseNumber = String(pick(records, ["housenumber", "objhousenumber", "streetnumber"]) ?? "").trim();
+    const street = (streetName && houseNumber && !streetName.endsWith(houseNumber) ? `${streetName} ${houseNumber}` : streetName).slice(0, 160) || null;
     const year = (value) => {
       const n = parseDeNumber(value);
       return n != null && n >= 1600 && n <= 2100 ? Math.round(n) : null;
@@ -402,6 +421,9 @@
         district: String(pick(records, ["objregio3", "district"]) ?? "").trim() || null,
         postalCode: String(pick(records, ["objzipcode", "geoplz", "postalcode", "postcode", "plz"]) ?? "").replace(/\s/g, "") || null,
         state: String(pick(records, ["objregio1", "addressregion", "state", "bundesland"]) ?? "").trim() || null,
+        street,
+        latitude: hasPoint ? latitude : null,
+        longitude: hasPoint ? longitude : null,
         propertyType,
         listingKind,
         yearBuilt: year(pick(records, ["objyearconstructed", "yearconstructed", "yearbuilt", "baujahr", "constructionyear"])),

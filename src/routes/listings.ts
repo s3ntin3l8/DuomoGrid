@@ -33,6 +33,10 @@ function asInput(row: ListingRow, priceEur: number | null): ListingInput {
     district: row.district,
     postalCode: row.postalCode,
     state: (row.state as ListingInput["state"]) ?? null,
+    street: row.street,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    locationPrecision: row.locationPrecision === "exact" ? "exact" : null,
     propertyType: row.propertyType as PropertyType,
     yearBuilt: row.yearBuilt,
     yearRefurbished: row.yearRefurbished,
@@ -177,6 +181,7 @@ export async function listingsRoute(app: FastifyInstance) {
       return Boolean(listing.sourceUrl && listing.sourceUrl.length > 8 && row.sourceUrl === listing.sourceUrl);
     });
     const id = existing?.id ?? crypto.randomUUID();
+    const located = listing.latitude != null && listing.longitude != null;
     const values = {
       id,
       source: listing.source,
@@ -188,6 +193,10 @@ export async function listingsRoute(app: FastifyInstance) {
       district: listing.district,
       postalCode: listing.postalCode,
       state: listing.state,
+      street: located ? listing.street : (existing?.street ?? null),
+      latitude: located ? listing.latitude : (existing?.latitude ?? null),
+      longitude: located ? listing.longitude : (existing?.longitude ?? null),
+      locationPrecision: located ? "exact" : (existing?.locationPrecision === "exact" ? "exact" : null),
       propertyType: listing.propertyType,
       livingAreaM2: listing.livingAreaM2,
       plotAreaM2: listing.plotAreaM2,
