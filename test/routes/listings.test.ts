@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { buildApp } from "../../src/app.js";
+import { listings } from "../../src/db/schema.js";
 
 describe("listings", () => {
   afterEach(() => {
@@ -127,6 +129,48 @@ describe("listings", () => {
     expect(patched.statusCode).toBe(200);
     expect(patched.json().notes).toBe("Ask about the roof");
     expect(patched.json().status).toBe("visit");
+
+    const id = created.json().id as string;
+    const before = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+    const dragged = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers: { authorization: "Bearer test-token" },
+      payload: { latitude: "48.540", longitude: "12.160" },
+    });
+    expect(dragged.statusCode).toBe(200);
+    expect(dragged.json().listing.latitude).toBe(48.54);
+    expect(dragged.json().listing.longitude).toBe(12.16);
+    expect(dragged.json().listing.locationPrecision).toBe("exact");
+    expect(dragged.json().listing.street).toBe("Altstadt 12");
+    expect(dragged.json().notes).toBe("Ask about the roof");
+    expect(dragged.json().status).toBe("visit");
+    const movedRow = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+    expect(movedRow?.createdAt).toBe(before?.createdAt);
+
+    const rejected = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers: { authorization: "Bearer test-token" },
+      payload: { latitude: 0, longitude: 0 },
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.latitude).toBe(48.54);
+
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/listings/${id}`,
+      headers: { authorization: "Bearer test-token" },
+      payload: { clearPoint: true },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().listing.latitude).toBeNull();
+    expect(cleared.json().listing.longitude).toBeNull();
+    expect(cleared.json().listing.locationPrecision).toBeNull();
+    expect(cleared.json().listing.street).toBe("Altstadt 12");
+    expect(cleared.json().notes).toBe("Ask about the roof");
+    expect(cleared.json().status).toBe("visit");
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.createdAt).toBe(before?.createdAt);
 
     const assumptions = await app.inject({
       method: "PUT",

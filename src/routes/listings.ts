@@ -4,7 +4,7 @@ import { installIngestGuard } from "../auth/guard.js";
 import { normalizeAssumptions } from "../domain/assumptions.js";
 import { analyze } from "../domain/analyze.js";
 import { cohortSummary, rentAgainstBuy, type CohortRow } from "../domain/compare.js";
-import { parseIngest } from "../domain/ingest.js";
+import { exactPoint, parseIngest } from "../domain/ingest.js";
 import { DEFAULT_ASSUMPTIONS } from "../domain/types.js";
 import type { Assumptions, ListingInput, Offer, PropertyType, Source } from "../domain/types.js";
 import { listings, observations, settings } from "../db/schema.js";
@@ -149,7 +149,7 @@ export async function listingsRoute(app: FastifyInstance) {
     return present(row, ctx.priceMap, ctx.past, ctx.model);
   });
 
-  app.patch<{ Params: { id: string }; Body: { notes?: unknown; status?: unknown } }>(
+  app.patch<{ Params: { id: string }; Body: { notes?: unknown; status?: unknown; latitude?: unknown; longitude?: unknown; clearPoint?: unknown } }>(
     "/listings/:id",
     async (request, reply) => {
       const row = app.db.select().from(listings).where(eq(listings.id, request.params.id)).all()[0];
@@ -159,9 +159,27 @@ export async function listingsRoute(app: FastifyInstance) {
         typeof request.body?.status === "string" && ["open", "visit", "offer", "pass"].includes(request.body.status)
           ? request.body.status
           : row.status;
+      const body = request.body ?? {};
+      const wantsClear = body.clearPoint === true;
+      const wantsMove = Object.prototype.hasOwnProperty.call(body, "latitude") || Object.prototype.hasOwnProperty.call(body, "longitude");
+      if (wantsClear && wantsMove) return reply.code(400).send({ error: "Send a point or clearPoint, not both." });
+      let latitude = row.latitude;
+      let longitude = row.longitude;
+      let locationPrecision = row.locationPrecision === "exact" ? "exact" : null;
+      if (wantsClear) {
+        latitude = null;
+        longitude = null;
+        locationPrecision = null;
+      } else if (wantsMove) {
+        const placed = exactPoint(body.latitude, body.longitude);
+        if (!placed) return reply.code(400).send({ error: "A point needs both coordinates in range." });
+        latitude = placed.latitude;
+        longitude = placed.longitude;
+        locationPrecision = "exact";
+      }
       app.db
         .update(listings)
-        .set({ notes, status: nextStatus, updatedAt: new Date().toISOString() })
+        .set({ notes, status: nextStatus, latitude, longitude, locationPrecision, updatedAt: new Date().toISOString() })
         .where(eq(listings.id, row.id))
         .run();
       const stored = app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0];

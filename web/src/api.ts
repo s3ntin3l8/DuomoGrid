@@ -147,7 +147,11 @@ export function loadListings(token: string) {
   return request<DeskListing[]>(token, "/listings");
 }
 
-export function saveListing(token: string, id: string, body: { notes?: string; status?: string }) {
+export function saveListing(
+  token: string,
+  id: string,
+  body: { notes?: string; status?: string; latitude?: number; longitude?: number; clearPoint?: boolean },
+) {
   return request<DeskListing>(token, `/listings/${id}`, { method: "PATCH", body: JSON.stringify(body) });
 }
 

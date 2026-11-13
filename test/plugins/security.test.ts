@@ -12,6 +12,9 @@ describe("security plugin", () => {
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
     expect(res.headers["x-frame-options"]).toBeDefined();
+    const csp = String(res.headers["content-security-policy"] ?? "");
+    expect(csp).toContain("https://tiles.openfreemap.org");
+    expect(csp).toContain("worker-src");
     await app.close();
   });
 

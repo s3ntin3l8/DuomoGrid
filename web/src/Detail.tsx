@@ -6,11 +6,13 @@ export function Detail({
   onBack,
   onStatus,
   onNotes,
+  onClearPoint,
 }: {
   row: DeskListing;
   onBack: () => void;
   onStatus: (status: string) => void;
   onNotes: (notes: string) => void;
+  onClearPoint: () => void;
 }) {
   const { listing, analysis } = row;
   const buy = listing.offer === "buy";
@@ -41,9 +43,19 @@ export function Detail({
       </p>
       <h2>{listing.title}</h2>
       <p className="meta">{place || "Place not detected"}</p>
-      {listing.latitude != null && listing.longitude != null ? (
+      {listing.street || (listing.latitude != null && listing.longitude != null) ? (
         <p className="meta">
-          {[listing.street, `${listing.latitude.toFixed(5)}, ${listing.longitude.toFixed(5)}`].filter(Boolean).join(" · ")}
+          {[
+            listing.street,
+            listing.latitude != null && listing.longitude != null
+              ? `${listing.latitude.toFixed(5)}, ${listing.longitude.toFixed(5)}`
+              : null,
+          ].filter(Boolean).join(" · ")}
+          {listing.latitude != null && listing.longitude != null ? (
+            <button className="text-button" type="button" onClick={onClearPoint}>
+              Clear point
+            </button>
+          ) : null}
         </p>
       ) : null}
       <div className="hero">

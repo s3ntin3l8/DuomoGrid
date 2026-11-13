@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   loadAssumptions,
@@ -16,8 +16,10 @@ import { Compare } from "./Compare";
 import { Detail } from "./Detail";
 import { eur, statusLabel } from "./format";
 
+const ListingMap = lazy(() => import("./Map").then((mod) => ({ default: mod.ListingMap })));
+
 type OfferFilter = "all" | "buy" | "rent";
-type Mode = "detail" | "compare" | "assumptions";
+type Mode = "detail" | "compare" | "assumptions" | "map";
 
 export function App() {
   const [token, setToken] = useState(storedToken);
@@ -84,7 +86,7 @@ export function App() {
     });
   }
 
-  async function mutate(id: string, body: { notes?: string; status?: string }) {
+  async function mutate(id: string, body: { notes?: string; status?: string; latitude?: number; longitude?: number; clearPoint?: boolean }) {
     const updated = await saveListing(token, id, body);
     setRows((current) => current.map((row) => (row.id === id ? updated : row)));
   }
@@ -176,6 +178,9 @@ export function App() {
         <div className="toolbar">
           <p className="meta">{rows.length === 0 ? "No saved listings" : `${rows.length} saved`}</p>
           <div className="hero-actions">
+            <button className="quiet" type="button" aria-pressed={mode === "map"} onClick={() => { setMode("map"); setReading(true); }}>
+              Map
+            </button>
             <button className="quiet" type="button" onClick={() => { setMode("assumptions"); setReading(true); }}>
               Assumptions
             </button>
@@ -204,12 +209,29 @@ export function App() {
           />
         ) : null}
         {mode === "compare" && compared.length >= 2 ? <Compare rows={compared} /> : null}
+        {mode === "map" ? (
+          <Suspense fallback={<p className="meta">Loading the map…</p>}>
+            <ListingMap
+              rows={visible}
+              onOpen={open}
+              onMove={async (id, latitude, longitude) => {
+                try {
+                  await mutate(id, { latitude, longitude });
+                } catch (reason: unknown) {
+                  setError(reason instanceof Error ? reason.message : "Could not move the pin.");
+                  throw reason;
+                }
+              }}
+            />
+          </Suspense>
+        ) : null}
         {mode === "detail" && active ? (
           <Detail
             row={active}
             onBack={() => setReading(false)}
             onStatus={(next) => void mutate(active.id, { status: next })}
             onNotes={(notes) => void mutate(active.id, { notes })}
+            onClearPoint={() => void mutate(active.id, { clearPoint: true })}
           />
         ) : null}
         {mode === "detail" && !active ? (
