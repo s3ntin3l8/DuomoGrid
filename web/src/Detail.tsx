@@ -93,6 +93,7 @@ export function Detail({
         </ul>
       ) : null}
       <LandValue row={row} pending={landPending} miss={landMiss} />
+      <DistrictBand row={row} />
       <div className="cols">
         {buy ? (
           <section className="block">
@@ -172,6 +173,24 @@ export function Detail({
         <Notes initial={row.notes} onSave={onNotes} />
       </section>
     </article>
+  );
+}
+
+function DistrictBand({ row }: { row: DeskListing }) {
+  const band = row.districtSaleBand;
+  if (!band) return null;
+  const kind = band.kind === "house" ? "detached and semi-detached houses" : "used apartments";
+  return (
+    <section className="block">
+      <h3>District sale band</h3>
+      <p>
+        {band.name} · {band.band} EUR/m² · {band.year}
+      </p>
+      <p className="meta">
+        Published sale band for {kind} in this district. Not the value of this building, and not the asking-price guide.
+      </p>
+      <p className="meta">AK OGA, Immobilienmarktbericht Deutschland 2025.</p>
+    </section>
   );
 }
 

@@ -1,0 +1,9 @@
+Redistribution of this table is allowed when the following source notice is kept:
+
+AK OGA, Immobilienmarktbericht Deutschland 2025, hrsg. vom Oberen Gutachterausschuss für Grundstückswerte in Niedersachsen.
+
+The file is the published CSV from the 2025 report (download 224079). BERJ is the report year. The desk uses the latest year in the file. A band is the published range, not a midpoint and not a zero.
+
+Abb_4_55 is the sale price per living square metre for detached and semi-detached houses.
+Abb_4_92 is the sale price per living square metre for used apartments.
+Other columns are not a sale band for the property types this desk knows.

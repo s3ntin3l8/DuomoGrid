@@ -336,4 +336,93 @@ describe("listings", () => {
       await app.close();
     }
   });
+
+  it("shows a district sale band for a buy and not for a rental", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const base = {
+      v: 1,
+      source: "immobilienscout24",
+      sourceUrl: "https://www.immobilienscout24.de/expose/789",
+      externalId: "789",
+      title: "Munich apartment",
+      priceEur: 700000,
+      livingAreaM2: 80,
+      city: "München",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+    };
+    const created = await app.inject({ method: "POST", url: "/listings", headers, payload: base });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().districtSaleBand).toEqual({
+      name: "München",
+      stateName: "Bayern",
+      year: 2024,
+      band: "3250 und mehr",
+      kind: "apartment",
+    });
+
+    const house = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: {
+        ...base,
+        externalId: "790",
+        sourceUrl: "https://www.immobilienscout24.de/expose/790",
+        propertyType: "house",
+        title: "Munich house",
+      },
+    });
+    expect(house.json().districtSaleBand).toMatchObject({ kind: "house", band: "3500 und mehr", name: "München" });
+
+    const landshut = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: {
+        ...base,
+        externalId: "792",
+        sourceUrl: "https://www.immobilienscout24.de/expose/792",
+        city: "Landshut",
+        title: "Landshut apartment",
+      },
+    });
+    expect(landshut.json().districtSaleBand).toMatchObject({ name: "Landshut", kind: "apartment", year: 2024 });
+    const unmatched = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: {
+        ...base,
+        externalId: "793",
+        sourceUrl: "https://www.immobilienscout24.de/expose/793",
+        city: "Nowhere",
+        title: "Unmatched apartment",
+      },
+    });
+    expect(unmatched.json().districtSaleBand).toBeNull();
+    expect(landshut.json().analysis.score).toEqual(expect.any(Number));
+    expect(landshut.json().analysis.score).toBe(unmatched.json().analysis.score);
+    expect(landshut.json().analysis.subscores).toEqual(unmatched.json().analysis.subscores);
+
+    const rented = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: {
+        ...base,
+        externalId: "791",
+        sourceUrl: "https://www.immobilienscout24.de/expose/791",
+        listingKind: "rent",
+        priceEur: 1800,
+        title: "Munich rent",
+      },
+    });
+    expect(rented.json().districtSaleBand).toBeNull();
+    expect(rented.json().analysis.score).toBeNull();
+    await app.close();
+  });
 });

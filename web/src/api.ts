@@ -106,6 +106,13 @@ export type DeskListing = {
     eurPerM2: number | null;
     stichtag: string | null;
   } | null;
+  districtSaleBand: {
+    name: string;
+    stateName: string;
+    year: number;
+    band: string;
+    kind: "apartment" | "house";
+  } | null;
 };
 
 const TOKEN_KEY = "duomo.token";
