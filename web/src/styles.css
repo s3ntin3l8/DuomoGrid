@@ -181,3 +181,9 @@ td:first-child { color: var(--muted); white-space: nowrap; }
   .hero .price { font-size: 34px; }
   .main { padding: 16px; }
 }
+
+.fold { margin: 8px 0 0; border-top: 1px solid var(--line); padding-top: 6px; }
+.fold summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.prose { white-space: pre-wrap; line-height: 1.5; margin: 8px 0 0; }
+.findings { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.findings li { display: grid; gap: 2px; }

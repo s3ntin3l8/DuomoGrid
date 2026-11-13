@@ -59,10 +59,33 @@ export type DeskListing = {
     depositEur: number | null;
     rentContract: string | null;
     floor: string | null;
+    condition: string | null;
     features: string[];
     leasehold: boolean;
     snippet: string;
+    heatingSystem: string | null;
+    energySource: string | null;
+    parkingSpaces: number | null;
+    parkingType: "garage" | "underground" | "carport" | "outdoor" | "other" | null;
+    parkingPriceEur: number | null;
+    bathrooms: number | null;
+    bedrooms: number | null;
+    availableFrom: string | null;
+    listedAt: string | null;
+    portalPreviousPriceEur: number | null;
+    portalMarketEurPerM2: number | null;
+    portalMarketLowEurPerM2: number | null;
+    portalMarketHighEurPerM2: number | null;
+    /** Only on the detail route. The list returns null and []. */
+    description: { object: string | null; furnishing: string | null; location: string | null; other: string | null } | null;
+    details: { label: string; value: string }[];
   };
+  /** Null on the list. Present once the detail route has answered. */
+  descriptionFindings: {
+    items: { key: string; label: string; snippet: string; year?: number; amountEur?: number }[];
+    renovatedYear: number | null;
+    heatingReplacedYear: number | null;
+  } | null;
   analysis: {
     pricePerLivingM2: number | null;
     rentPerM2: number | null;

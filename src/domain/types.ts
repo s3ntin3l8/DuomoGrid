@@ -65,7 +65,39 @@ export type ListingInput = {
   groundRentEur: number | null;
   monument: boolean;
   tenantOccupied: boolean;
+  /** The heating installation ("Zentralheizung"), not the fuel. `heating` stays the combined label. */
+  heatingSystem: string | null;
+  /** The fuel or source ("Pellets", "Wärmepumpe", "Gas"), canonical when it is a known one. */
+  energySource: string | null;
+  parkingSpaces: number | null;
+  parkingType: ParkingType | null;
+  /** Extra purchase price for the parking space, when the exposé states one. */
+  parkingPriceEur: number | null;
+  bathrooms: number | null;
+  bedrooms: number | null;
+  availableFrom: string | null;
+  /** When the portal says the listing went online, as an ISO timestamp. */
+  listedAt: string | null;
+  /** The earlier asking price the portal shows, undated. Not an observation. */
+  portalPreviousPriceEur: number | null;
+  /** The portal's own EUR/m2 estimate and its range. Display only, area not stated. */
+  portalMarketEurPerM2: number | null;
+  portalMarketLowEurPerM2: number | null;
+  portalMarketHighEurPerM2: number | null;
+  /** Long text, as published. Only the detail route returns it. */
+  description: ListingDescription | null;
+  /** Label and value pairs from the exposé, as published. Only the detail route returns them. */
+  details: DetailPair[];
 };
+
+export type ParkingType = "garage" | "underground" | "carport" | "outdoor" | "other";
+export type ListingDescription = {
+  object: string | null;
+  furnishing: string | null;
+  location: string | null;
+  other: string | null;
+};
+export type DetailPair = { label: string; value: string };
 
 export type Assumptions = {
   equityMode: "percent" | "eur";

@@ -43,6 +43,13 @@
       "when": 1794595748125,
       "tag": "0005_bavaria_bodenrichtwert",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794612144734,
+      "tag": "0006_brown_medusa",
+      "breakpoints": true
     }
   ]
 }

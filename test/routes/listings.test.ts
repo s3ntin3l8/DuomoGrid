@@ -924,4 +924,100 @@ describe("listings", () => {
     expect(row?.brwEurPerM2).toBeNull();
     await app.close();
   });
+
+  it("keeps the long text on the detail route only, and keeps stored details when a save lacks the keys", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const base = {
+      source: "immowelt",
+      sourceUrl: "https://www.immowelt.de/expose/bbbb",
+      externalId: "bbbb",
+      title: "Details",
+      priceEur: 300000,
+      livingAreaM2: 90,
+      city: "Hepberg",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+    };
+    const rich = {
+      ...base,
+      heatingSystem: "Zentralheizung",
+      energySource: "Pellets",
+      parkingSpaces: 2,
+      parkingType: "garage",
+      parkingPriceEur: 10000,
+      bathrooms: 1,
+      description: { object: "Die Wohnung wurde ca. im Jahr 2015 renoviert. Keine Sonderumlage.", other: "Sonstiges" },
+      details: [{ label: "Heizungsart", value: "Zentralheizung" }],
+    };
+    const created = await app.inject({ method: "POST", url: "/listings", headers, payload: rich });
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id as string;
+    expect(created.json().listing.description).toBeNull();
+    expect(created.json().listing.details).toEqual([]);
+
+    const listedAll = await app.inject({ method: "GET", url: "/listings", headers });
+    type Row = { id: string; listing: { description: unknown; parkingSpaces: number | null }; descriptionFindings: unknown; analysis: { score: number | null } };
+    const listedRow = (listedAll.json() as Row[]).find((item) => item.id === id) as Row;
+    expect(listedRow.listing.description).toBeNull();
+    expect(listedRow.listing.parkingSpaces).toBe(2);
+    expect(listedRow.descriptionFindings).toBeNull();
+
+    const detail = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+    expect(detail.json().listing.description.object).toContain("renoviert");
+    expect(detail.json().listing.details).toEqual([{ label: "Heizungsart", value: "Zentralheizung" }]);
+    expect(detail.json().descriptionFindings.renovatedYear).toBe(2015);
+    expect(detail.json().descriptionFindings.items.map((item: { key: string }) => item.key)).not.toContain("special_levy");
+
+    // The score and flags do not depend on which route asked.
+    expect(listedRow.analysis.score).toBe(detail.json().analysis.score);
+
+    // The observation copy of the body does not carry the long text.
+    const observed = app.db.select().from(observations).where(eq(observations.listingId, id)).all()[0];
+    expect(observed?.rawJson).not.toContain("renoviert");
+    expect(observed?.rawJson).toContain("Hepberg");
+
+    // An older extension re-saves without the new keys: nothing is blanked.
+    const again = await app.inject({ method: "POST", url: "/listings", headers, payload: base });
+    expect(again.statusCode).toBe(200);
+    const kept = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+    expect(kept.json().listing).toMatchObject({ heatingSystem: "Zentralheizung", energySource: "Pellets", parkingSpaces: 2, parkingPriceEur: 10000, bathrooms: 1 });
+    expect(kept.json().listing.description.object).toContain("renoviert");
+    expect(kept.json().listing.details).toHaveLength(1);
+
+    // A newer extension that sends the key as null does clear it: the page really no longer says it.
+    const cleared = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, parkingSpaces: null, description: null } });
+    expect(cleared.statusCode).toBe(200);
+    const after = await app.inject({ method: "GET", url: `/listings/${id}`, headers });
+    expect(after.json().listing.parkingSpaces).toBeNull();
+    expect(after.json().listing.description).toBeNull();
+    expect(after.json().listing.energySource).toBe("Pellets");
+
+    // The year read from the text moves nothing the stored columns say, and the list and the detail agree on the result.
+    const flagsOf = (value: { analysis: { flags: { title: string }[]; score: number | null } }) => ({ score: value.analysis.score, flags: value.analysis.flags.map((flag) => flag.title) });
+    await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: { ...base, yearBuilt: 1960, energyClass: "G", description: { object: "Das Bad wurde 2019 renoviert." } },
+    });
+    const viaDetail = (await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json();
+    const viaList = ((await app.inject({ method: "GET", url: "/listings", headers })).json() as { id: string }[]).find((item) => item.id === id) as typeof viaDetail;
+    expect(viaDetail.listing.yearRefurbished).toBeNull();
+    expect(viaDetail.descriptionFindings.renovatedYear).toBe(2019);
+    expect(flagsOf(viaList)).toEqual(flagsOf(viaDetail));
+    expect(flagsOf(viaDetail).flags).not.toContain("Unrenovated building");
+
+    // The findings follow the stored text: a save with another description is read again, not served from the cache.
+    await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, description: { object: "Das Bad wurde 2012 renoviert." } } });
+    const reread = (await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json();
+    expect(reread.descriptionFindings.renovatedYear).toBe(2012);
+
+    // A renovation year read from the text never overrides a stored one.
+    const stored = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...rich, yearRefurbished: 2020 } });
+    expect(stored.json().listing.yearRefurbished).toBe(2020);
+    await app.close();
+  });
 });

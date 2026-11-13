@@ -115,4 +115,16 @@ describe("extract helpers", () => {
       expect(result.listing).toMatchObject({ city, district });
     }
   });
+
+  it("leaves description and details out when nothing was found, so a partial page never blanks stored text", () => {
+    const { duomoBuildListing } = globalThis as ExtractGlobals & {
+      duomoBuildListing: (r: Record<string, unknown>[], p: typeof page) => { ok: boolean; listing?: Record<string, unknown> };
+    };
+    const bare = duomoBuildListing([{ description: "A short meta teaser from a decoy record." }], page).listing as Record<string, unknown>;
+    expect("description" in bare).toBe(false);
+    expect("details" in bare).toBe(false);
+    const full = duomoBuildListing([{ descriptionobject: "The real text." }], { ...page, details: [{ label: "Heizungsart", value: "Gas" }] }).listing as Record<string, unknown>;
+    expect(full.description).toMatchObject({ object: "The real text." });
+    expect(full.details).toEqual([{ label: "Heizungsart", value: "Gas" }]);
+  });
 });

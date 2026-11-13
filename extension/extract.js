@@ -225,6 +225,13 @@
       [/energietraeger|befeuerung|heizungsart|^heizung$/, "heating"],
       [/objektzustand|^zustand$/, "condition"],
       [/^etage$/, "floor"],
+      [/^badezimmer$/, "bathrooms"],
+      [/^schlafzimmer$/, "bedrooms"],
+      [/garagestellplatzkaufpreis|stellplatzkaufpreis|garagekaufpreis/, "parkingPriceEur"],
+      [/^(garage|stellplatz|garagestellplatz|garageparkplatz|tiefgarage|parkplatz)$/, "parkingText"],
+      [/bezugsfrei/, "availableFrom"],
+      [/heizungsart/, "heatingSystem"],
+      [/energietraeger|befeuerung/, "energySource"],
     ];
     for (const el of doc.querySelectorAll("body *")) {
       const own = ownText(el);
@@ -369,14 +376,79 @@
       if (feature.type === "basedOn") record.buildingEnergyRatingType = feature.value;
     }
     const elements = [];
+    const parking = [];
+    let bathrooms = null;
     for (const category of at(sections, ["features", "details", "categories"]) || []) {
       for (const element of category.elements || []) {
         if (element.icon === "floors") record.floor = element.value;
         else if (element.value) elements.push(String(element.value));
+        if (element.icon === "parking-lots" && element.value) parking.push(String(element.value));
+        const bath = /^(\d{1,2})\s*badezimmer/i.exec(String(element.value ?? ""));
+        if (bath) bathrooms = Number(bath[1]);
       }
     }
     if (elements.length) record.features = elements.join(" · ");
+    // The stock line ("1 Stellplatz") carries the count; the feature carries the kind.
+    const note = at(sections, ["price", "note"]);
+    if (/stellpl|garage|carport|parkpl/i.test(String(note ?? ""))) parking.push(String(note));
+    if (parking.length) record.parkingText = parking.join(", ");
+    for (const feature of energy.features || []) {
+      if (feature.type === "energySource") record.energySource = feature.value;
+      if (feature.type === "heatingSystem") record.heatingSystem = feature.value;
+    }
+    const extended = String(at(sections, ["extendedInfoDescription", "description"]) ?? "");
+    if (bathrooms == null) {
+      const found = /Anzahl der Badezimmer:\s*(\d{1,2})/i.exec(extended);
+      if (found) bathrooms = Number(found[1]);
+    }
+    record.bathrooms = bathrooms;
+    record.bedrooms = amount(cfg.Schlafzimmer);
+    record.descriptionObject = at(sections, ["mainDescription", "description"]);
+    record.descriptionLocation = at(sections, ["areaDescription", "description"]);
+    record.descriptionOther = extended || null;
+    record.descriptionFurnishing = at(sections, ["features", "details", "additionalText"]);
+    record.listedAt = at(c, ["metadata", "creationDate"]);
+    record.portalPreviousPriceEur = at(sections, ["hardFacts", "price", "previousPrice"]);
+    const market = at(sections, ["priceComparison", "data"]) || {};
+    record.portalMarketEurPerM2 = market.value;
+    record.portalMarketLowEurPerM2 = market.low;
+    record.portalMarketHighEurPerM2 = market.high;
     return record;
+  }
+
+  /** Label and value pairs as Immowelt shows them. Category titles label the feature lines. */
+  function immoweltDetails(c) {
+    const pairs = [];
+    const sections = c.sections || {};
+    for (const category of at(sections, ["features", "details", "categories"]) || []) {
+      for (const element of category.elements || []) {
+        if (category.title && element.value) pairs.push({ label: cleanText(category.title), value: cleanText(element.value) });
+      }
+    }
+    for (const feature of at(sections, ["energy", "features"]) || []) {
+      if (feature.label && feature.value) pairs.push({ label: cleanText(feature.label), value: cleanText(feature.value) });
+    }
+    const fee = at(sections, ["price", "base", "commissionFee"]);
+    if (fee && fee.value) pairs.push({ label: cleanText(at(fee, ["label"]) || "Provision"), value: cleanText(fee.value) });
+    return pairs;
+  }
+
+  /** The dt/dd pairs ImmoScout24 renders. Soft hyphens and long explanations are dropped. */
+  function dlPairs(doc) {
+    const pairs = [];
+    if (!doc.querySelectorAll) return pairs;
+    for (const dt of doc.querySelectorAll("dt")) {
+      const dd = dt.nextElementSibling;
+      if (!dd || String(dd.tagName).toLowerCase() !== "dd") continue;
+      // ImmoScout24 tags every exposé fact with an is24qa- class. Other lists on the page (agent, cookies) have none.
+      if (!String(dt.className || "").includes("is24qa-")) continue;
+      const label = cleanText(dt.textContent);
+      const value = cleanText(dd.textContent);
+      if (!label || !value || label.length > 80 || value.length > 200) continue;
+      pairs.push({ label, value });
+      if (pairs.length >= 40) break;
+    }
+    return pairs;
   }
 
   /** IS24 keeps the point, the town and the gallery in JS literals next to keyValues. Read by path: bbox corners share the key names. */
@@ -408,7 +480,12 @@
       record.houseNumber = text("houseNumber");
     }
     const content = assignedObject(blob, '"exposeContent"');
-    if (content && content.objectDescription) record.description = content.objectDescription;
+    if (content) {
+      if (content.objectDescription) record.descriptionObject = content.objectDescription;
+      if (content.furnishingDescription) record.descriptionFurnishing = content.furnishingDescription;
+      if (content.locationDescription) record.descriptionLocation = content.locationDescription;
+      if (content.otherDescription) record.descriptionOther = content.otherDescription;
+    }
     return record;
   }
 
@@ -515,6 +592,65 @@
     return String(value).slice(0, 80);
   }
 
+  function cleanText(value) {
+    return String(value ?? "").replace(/\u00ad/g, "").replace(/\s+/g, " ").trim();
+  }
+
+  /** Same fuel mapping as `energySourceOf` in src/domain/ingest.ts. Change them together. */
+  function energySourceOf(value) {
+    const raw = cleanText(value);
+    if (!raw || ABSENT.test(raw)) return null;
+    const text = raw.toLowerCase();
+    if (text.includes("pellet")) return "Pellets";
+    if (/holz|wood|hackschnitzel/.test(text)) return "Holz";
+    if (/w(ä|ae|a)rmepumpe|heat.?pump/.test(text)) return "Wärmepumpe";
+    if (/erdw(ä|ae|a)rme|geotherm/.test(text)) return "Erdwärme";
+    if (/fernw|fern-|district/.test(text)) return "Fernwärme";
+    if (/(^|[^a-zäöü])(öl|oel|oil)([^a-zäöü]|$)|heiz(ö|oe)l/.test(text)) return "Öl";
+    if (text.includes("gas")) return "Gas";
+    if (/strom|electric|nachtspeicher|night/.test(text)) return "Strom";
+    if (text.includes("solar")) return "Solar";
+    return raw.slice(0, 60);
+  }
+
+  /** The installation, not the fuel. IS24 keys are snake_case English, Immowelt text is already German. */
+  function heatingSystemOf(value) {
+    const raw = cleanText(value);
+    if (!raw || ABSENT.test(raw)) return null;
+    const text = raw.toLowerCase();
+    if (text.includes("self_contained") || text.includes("etagen")) return "Etagenheizung";
+    if (text.includes("central") || text.includes("zentral")) return "Zentralheizung";
+    if (text.includes("floor") || text.includes("fu\u00dfboden") || text.includes("fussboden")) return "Fußbodenheizung";
+    if (text.includes("stove") || text.includes("ofen")) return "Ofenheizung";
+    if (text.includes("district") || text.includes("fern")) return "Fernwärme";
+    if (/^[a-z0-9_]+$/.test(text)) return null;
+    return raw.slice(0, 80);
+  }
+
+  /** "2 Stellplätze", "Außen-Stellplatz", "Tiefgarage" to a count and a type. Neither is guessed. */
+  function parkingFrom(value) {
+    const text = cleanText(value).toLowerCase();
+    if (!text) return { spaces: null, type: null };
+    const counted = text.match(/(\d{1,2})\s*(?:x\s*)?[a-zäöüß-]*?(?:stellpl|garage|carport|parkpl)/);
+    const spaces = counted ? Number(counted[1]) : null;
+    let type = null;
+    if (/tiefgarage|underground/.test(text)) type = "underground";
+    else if (text.includes("carport")) type = "carport";
+    else if (text.includes("garage")) type = "garage";
+    else if (/au(ß|ss)en|freiplatz|outdoor|stellplatz|stellpl(ä|ae)tze|parkplatz/.test(text)) type = "outdoor";
+    return { spaces: spaces != null && spaces > 0 ? spaces : null, type };
+  }
+
+  function wholeNumber(value, max) {
+    const n = parseDeNumber(value);
+    return n != null && Number.isInteger(n) && n > 0 && n <= max ? n : null;
+  }
+
+  function positive(value) {
+    const n = parseDeNumber(value);
+    return n != null && n > 0 ? n : null;
+  }
+
   function buildListing(records, page) {
     const detected = detect(page.href);
     if (!detected) {
@@ -559,7 +695,26 @@
     const floor = pick(records, ["objfloor", "floor", "etage"]);
     const floors = pick(records, ["objnumberoffloors", "numberoffloors"]);
     const floorText = floor ? (floors ? `${floor} von ${floors}` : String(floor)) : null;
-    const description = String(pick(records, ["objdescription", "description", "snippet"]) ?? page.text ?? "").replace(/\s+/g, " ").trim();
+    const longText = (value) => {
+      const text = String(value ?? "").replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      return text ? text.slice(0, 6000) : null;
+    };
+    const descriptionParts = {
+      // Only the collected description. The meta description is a teaser and must not stand in for the text.
+      object: longText(pick(records, ["descriptionobject", "objdescription"])),
+      furnishing: longText(pick(records, ["descriptionfurnishing"])),
+      location: longText(pick(records, ["descriptionlocation"])),
+      other: longText(pick(records, ["descriptionother"])),
+    };
+    const hasDescription = Object.values(descriptionParts).some((part) => part != null);
+    // The collected description comes first; the meta description or page text only fills a gap.
+    const description = String(descriptionParts.object ?? pick(records, ["objdescription", "description", "snippet"]) ?? page.text ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const parking = parkingFrom(pick(records, ["parkingtext"]));
+    const heatingSystem = heatingSystemOf(pick(records, ["heatingsystem"])) ?? heatingSystemOf(heatingType);
+    const energySource = energySourceOf(pick(records, ["energysource"]) ?? firing);
+    const detailPairs = Array.isArray(page.details) ? page.details.slice(0, 40) : [];
     const leasehold = yes(pick(records, ["objleasehold", "leasehold", "erbpacht"])) || /\b(erbpacht|erbbaurecht)\b/i.test(description);
     const monument = yes(pick(records, ["objlisted", "listed", "denkmal", "monument"])) || /denkmalschutz/i.test(description);
     const rentedOut = yes(pick(records, ["objrented", "rented", "vermietet"])) || /(?<!nicht\s)\bvermietet\b/i.test(description);
@@ -652,6 +807,22 @@
         groundRentEur: parseDeNumber(pick(records, ["objleaseholdpayment", "erbbauzins", "groundrent", "groundrenteur"])),
         monument,
         rentedOut,
+        heatingSystem,
+        energySource,
+        parkingSpaces: parking.spaces,
+        parkingType: parking.type,
+        parkingPriceEur: positive(pick(records, ["parkingpriceeur"])),
+        bathrooms: wholeNumber(pick(records, ["bathrooms"]), 30),
+        bedrooms: wholeNumber(pick(records, ["bedrooms"]), 30),
+        availableFrom: cleanText(pick(records, ["availablefrom"])).slice(0, 80) || null,
+        listedAt: cleanText(pick(records, ["listedat"])) || null,
+        portalPreviousPriceEur: positive(pick(records, ["portalpreviouspriceeur"])),
+        portalMarketEurPerM2: positive(pick(records, ["portalmarketeurperm2"])),
+        portalMarketLowEurPerM2: positive(pick(records, ["portalmarketloweurperm2"])),
+        portalMarketHighEurPerM2: positive(pick(records, ["portalmarkethigheurperm2"])),
+        // Left out when nothing was found, so a page that failed to load a section never blanks what is stored.
+        ...(hasDescription ? { description: descriptionParts } : {}),
+        ...(detailPairs.length > 0 ? { details: detailPairs } : {}),
       },
     };
   }
@@ -685,7 +856,8 @@
     records.push(...jsonRecords(doc));
     const labeled = domRecord(doc);
     if (Object.keys(labeled).length) records.push(labeled);
-    return buildListing(records, { href, title: pageTitle(doc), text: pageText(doc) });
+    const details = classified ? immoweltDetails(classified) : dlPairs(doc);
+    return buildListing(records, { href, title: pageTitle(doc), text: pageText(doc), details });
   }
 
   globalThis.duomoExtract = extractListing;
