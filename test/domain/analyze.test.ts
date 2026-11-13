@@ -154,16 +154,16 @@ describe("asking-price flags", () => {
     state: "BY",
     propertyType: "apartment",
   });
-  const published = { status: "published", zone: "Untere Altstadt", eurPerM2: 2000 };
+  const published = { status: "published" as const, zone: "Untere Altstadt", eurPerM2: 2000, stichtag: "01.01.2026" };
   const band = { name: "Landshut", stateName: "Bayern", year: 2024, band: "3250 und mehr", kind: "apartment" as const };
 
   it("adds no flag and does not change the score when the land value or the band is missing", () => {
     const plain = analyze(buy, assumptions);
     const cases = [
-      analyze(buy, assumptions, { bodenrichtwert: { status: "none", zone: null, eurPerM2: null }, districtSaleBand: null }),
-      analyze(buy, assumptions, { bodenrichtwert: { status: "unpublished", zone: "Marienplatz", eurPerM2: null } }),
-      analyze(buy, assumptions, { bodenrichtwert: { status: "published", zone: "Acker", eurPerM2: 0 } }),
-      analyze(buy, assumptions, { bodenrichtwert: { status: "unknown", zone: null, eurPerM2: null } }),
+      analyze(buy, assumptions, { bodenrichtwert: { status: "none" }, districtSaleBand: null }),
+      analyze(buy, assumptions, { bodenrichtwert: { status: "unpublished", zone: "Marienplatz", stichtag: "01.01.2026" } }),
+      analyze(buy, assumptions, { bodenrichtwert: { status: "published", zone: "Acker", eurPerM2: 0, stichtag: null } }),
+      analyze(buy, assumptions, { bodenrichtwert: null }),
       analyze(buy, assumptions, { districtSaleBand: null }),
     ];
     for (const result of cases) {
@@ -180,8 +180,8 @@ describe("asking-price flags", () => {
     expect(withPlot.subscores).toEqual(plain.subscores);
     const under = withPlot.flags.find((flag) => flag.title === "Asking price is under the plot's land value");
     expect(under?.severity).toBe("good");
-    expect(under?.detail).toContain("2000 EUR/m2 of land");
-    expect(under?.detail).toContain("400000 EUR");
+    expect(under?.detail).toContain("2.000 EUR/m2 of land");
+    expect(under?.detail).toContain("400.000 EUR");
     expect(under?.detail).not.toMatch(/percent/i);
     expect(under?.detail.toLowerCase()).not.toContain("market value");
 
@@ -190,9 +190,9 @@ describe("asking-price flags", () => {
     expect(aboveLand.score).toBe(analyze(listing({ ...buy, priceEur: 500000 }), assumptions).score);
 
     const noPlot = listing({ ...buy, plotAreaM2: null });
-    const named = analyze(noPlot, assumptions, { bodenrichtwert: { status: "published", zone: "Acker", eurPerM2: 0.4 } });
+    const named = analyze(noPlot, assumptions, { bodenrichtwert: { status: "published", zone: "Acker", eurPerM2: 0.4, stichtag: "01.01.2026" } });
     const info = named.flags.find((flag) => flag.title === "Bodenrichtwert is a land value");
-    expect(info?.detail).toContain("0.4 EUR/m2 of land");
+    expect(info?.detail).toContain("0,4 EUR/m2 of land");
     expect(info?.detail).toContain("EUR/m2 of living area");
     expect(info?.detail).toContain("not the same unit");
     expect(named.score).toBe(analyze(noPlot, assumptions).score);

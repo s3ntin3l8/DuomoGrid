@@ -122,6 +122,13 @@ function bodenrichtwertView(row: ListingRow) {
   return { status: "unknown" as const, zone: null, eurPerM2: null, stichtag: null };
 }
 
+function asBodenrichtwert(view: ReturnType<typeof bodenrichtwertView>): Bodenrichtwert | null {
+  if (!view || view.status === "unknown") return null;
+  if (view.status === "none") return { status: "none" };
+  if (view.status === "unpublished") return { status: "unpublished", zone: view.zone, stichtag: view.stichtag };
+  return { status: "published", zone: view.zone, eurPerM2: view.eurPerM2, stichtag: view.stichtag };
+}
+
 export async function listingsRoute(app: FastifyInstance) {
   installIngestGuard(app, "/listings");
 
@@ -166,7 +173,7 @@ export async function listingsRoute(app: FastifyInstance) {
       state: row.state,
     });
     const bodenrichtwert = bodenrichtwertView(row);
-    const analysis = analyze(input, model, { bodenrichtwert, districtSaleBand });
+    const analysis = analyze(input, model, { bodenrichtwert: asBodenrichtwert(bodenrichtwert), districtSaleBand });
     const everyone = app.db
       .select()
       .from(listings)

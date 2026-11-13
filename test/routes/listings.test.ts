@@ -466,7 +466,7 @@ describe("listings", () => {
       expect(detail.json().analysis.score).toBe(score);
       expect(detail.json().analysis.subscores).toEqual(created.json().analysis.subscores);
       const land = detail.json().analysis.flags.find((flag: { title: string }) => flag.title === "Bodenrichtwert is a land value");
-      expect(land.detail).toContain("2000 EUR/m2 of land");
+      expect(land.detail).toContain("2.000 EUR/m2 of land");
       expect(land.detail).toContain("not the same unit");
       expect(detail.json().analysis.flags.some((flag: { title: string }) => flag.title === "Inside the district sale band")).toBe(true);
     } finally {
