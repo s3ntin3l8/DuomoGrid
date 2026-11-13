@@ -261,3 +261,173 @@ describe("asking-price flags", () => {
     expect(result.flags.some((flag) => /bodenrichtwert|district sale band/i.test(`${flag.title} ${flag.detail}`))).toBe(false);
   });
 });
+
+describe("analyze with the added exposé data", () => {
+  const home = listing({
+    title: "Home",
+    offer: "buy",
+    priceEur: 465000,
+    livingAreaM2: 100,
+    city: "Darmstadt",
+    state: "HE",
+    propertyType: "apartment",
+    energyClass: "C",
+    energyKwh: 100,
+    yearBuilt: 1990,
+  });
+  const energyScore = (result: ReturnType<typeof analyze>) => result.subscores.find((part) => part.key === "energy")?.score;
+  const titles = (result: ReturnType<typeof analyze>) => result.flags.map((flag) => flag.title);
+
+  it("changes nothing for a listing without the new data", () => {
+    const plain = analyze(home, assumptions);
+    expect(plain.parkingEur).toBeNull();
+    expect(plain.transferTaxEur).toBe(27900);
+    expect(plain.notaryEur).toBe(6975);
+    const empty = analyze(home, assumptions, { findings: [], heatingReplacedYear: null, history: null });
+    expect(empty.score).toBe(plain.score);
+    expect(empty.subscores).toEqual(plain.subscores);
+    expect(empty.flags).toEqual(plain.flags);
+  });
+
+  it("charges taxes and fees on the parking sold with the home, and keeps it out of the price and the price per m2", () => {
+    const withParking = analyze(listing({ ...home, parkingPriceEur: 10000, parkingSpaces: 2 }), assumptions);
+    expect(withParking).toMatchObject({ parkingEur: 20000, parkingUnitEur: 10000, parkingSpaces: 2, parkingSpacesAssumed: false });
+    expect(withParking.transferTaxEur).toBe(29100);
+    expect(withParking.notaryEur).toBe(7275);
+    const plain = analyze(home, assumptions);
+    expect(withParking.cashToCloseEur).toBe((plain.cashToCloseEur ?? 0) + 20000 + (withParking.extraEur ?? 0) - (plain.extraEur ?? 0));
+    expect(withParking.pricePerLivingM2).toBe(plain.pricePerLivingM2);
+    expect(withParking.subscores.find((part) => part.key === "price")).toEqual(plain.subscores.find((part) => part.key === "price"));
+    expect(titles(withParking)).toContain("Parking is priced separately");
+  });
+
+  it("says the single price is read as per space when there is more than one, and by how much it would differ", () => {
+    const flag = analyze(listing({ ...home, parkingPriceEur: 10000, parkingSpaces: 2 }), assumptions).flags.find((item) => item.title === "Parking is priced separately");
+    expect(flag?.detail).toContain("read here as the price per space");
+    expect(flag?.detail).toContain("10.000 EUR lower");
+    const one = analyze(listing({ ...home, parkingPriceEur: 10000, parkingSpaces: 1 }), assumptions).flags.find((item) => item.title === "Parking is priced separately");
+    expect(one?.detail).not.toContain("per space");
+  });
+
+  it("takes the equity share and the cost load on the price plus parking", () => {
+    const withParking = analyze(listing({ ...home, parkingPriceEur: 10000, parkingSpaces: 2 }), assumptions);
+    expect(withParking.equityEur).toBe(Math.round((485000 * assumptions.equityPercent) / 100));
+    const cost = withParking.subscores.find((part) => part.key === "costs");
+    const load = (withParking.extraEur ?? 0) / 485000;
+    expect(cost?.note).toContain(`Purchase costs are ${Math.round(load * 1000) / 10} percent of the price plus parking`);
+    expect(analyze(home, assumptions).subscores.find((part) => part.key === "costs")?.note).toContain("percent of the price");
+    expect(analyze(home, assumptions).subscores.find((part) => part.key === "costs")?.note).not.toContain("parking");
+  });
+
+  it("assumes one space when the price is stated without a number, and adds nothing without a price", () => {
+    const oneAssumed = analyze(listing({ ...home, parkingPriceEur: 12000 }), assumptions);
+    expect(oneAssumed).toMatchObject({ parkingEur: 12000, parkingSpaces: 1, parkingSpacesAssumed: true });
+    expect(oneAssumed.flags.find((flag) => flag.title === "Parking is priced separately")?.detail).toContain("One space is assumed");
+    const noPrice = analyze(listing({ ...home, parkingSpaces: 2 }), assumptions);
+    expect(noPrice.parkingEur).toBeNull();
+    expect(noPrice.cashToCloseEur).toBe(analyze(home, assumptions).cashToCloseEur);
+    expect(titles(noPrice)).not.toContain("Parking is priced separately");
+  });
+
+  it("does not apply parking to a rental", () => {
+    const rent = analyze(listing({ ...home, offer: "rent", priceEur: 1450, coldRentEur: 1450, parkingPriceEur: 10000, parkingSpaces: 1 }), assumptions);
+    expect(rent.parkingEur).toBeNull();
+    expect(rent.score).toBeNull();
+  });
+
+  it("takes the heating rate from the energy source, the label only when no source is named, else the middle rate", () => {
+    const annual = (partial: Partial<typeof home>) => analyze(listing({ ...home, ...partial }), assumptions).annualHeating;
+    expect(annual({ energySource: "Pellets", heating: "Zentralheizung" })).toBe(800);
+    expect(annual({ energySource: "Pellets", heating: "Gas-Zentralheizung" })).toBe(800);
+    // A fuel that is named but not recognised is unknown. The label does not override it.
+    expect(annual({ energySource: "Brennstoffzelle", heating: "Gas" })).toBe(1200);
+    expect(annual({ heating: "Gas" })).toBe(1100);
+    expect(annual({ energySource: "Biogas" })).toBe(1100);
+    expect(annual({ energySource: "Wärmepumpe" })).toBe(2800);
+    expect(annual({ energySource: "Erdwärme" })).toBe(2800);
+    expect(annual({ heating: "Zentralheizung" })).toBe(1200);
+  });
+
+  it("applies one heating adjustment to the energy subscore, never a stack", () => {
+    const base = energyScore(analyze(home, assumptions)) ?? 0;
+    const score = (partial: Partial<typeof home>, ctx = {}) => energyScore(analyze(listing({ ...home, ...partial }), assumptions, { nowYear: 2026, ...ctx })) ?? 0;
+    expect(score({ energySource: "Öl" })).toBe(base - 12);
+    expect(score({ energySource: "Gas" })).toBe(base - 8);
+    expect(score({ energySource: "Gas" }, { heatingReplacedYear: 1980 })).toBe(base - 8);
+    expect(score({}, { heatingReplacedYear: 1990 })).toBe(base - 8);
+    expect(score({}, { heatingReplacedYear: 2001 })).toBe(base);
+    expect(score({ energySource: "Wärmepumpe" })).toBe(base + 5);
+    expect(score({ energySource: "Fernwärme" })).toBe(base + 5);
+    // A stated heat pump or district heat is not made old by a boiler's age.
+    expect(score({ energySource: "Wärmepumpe" }, { heatingReplacedYear: 1980 })).toBe(base + 5);
+    expect(score({ energySource: "Fernwärme" }, { heatingReplacedYear: 1980 })).toBe(base + 5);
+    expect(score({ energySource: "Pellets" })).toBe(base);
+  });
+
+  it("decides the fuel once, so the rate, the score and the flags agree", () => {
+    const base = energyScore(analyze(home, assumptions)) ?? 0;
+    const read = (partial: Partial<typeof home>) => {
+      const result = analyze(listing({ ...home, ...partial }), assumptions, { nowYear: 2026 });
+      return { rate: result.heatingEuroPerKwh, score: energyScore(result), flags: titles(result) };
+    };
+    // The source wins over a contradicting label.
+    const pellets = read({ energySource: "Pellets", heating: "Gas-Zentralheizung" });
+    expect(pellets).toMatchObject({ rate: 0.08, score: base });
+    expect(pellets.flags).not.toContain("Fossil heating may need replacing");
+    // District heat fed by gas is district heat.
+    expect(read({ energySource: "Fernwärme aus Gas" })).toMatchObject({ rate: 0.16, score: base + 5 });
+    expect(read({ energySource: "Fernwärme aus Gas" }).flags).not.toContain("Fossil heating may need replacing");
+    // Biogas is not fossil, and "boiler" is not oil.
+    expect(read({ energySource: "Biogas" })).toMatchObject({ rate: 0.11, score: base });
+    expect(read({ energySource: "Biogas" }).flags).not.toContain("Fossil heating may need replacing");
+    expect(read({ heating: "Gas-Brennwertkessel (boiler)" }).flags).not.toContain("Oil or night-storage heating");
+    // A label alone still counts, exactly as the oil label always did.
+    expect(read({ heating: "Gas-Zentralheizung" })).toMatchObject({ rate: 0.11, score: base - 8 });
+    expect(read({ heating: "Wärmepumpe" })).toMatchObject({ rate: 0.28, score: base + 5 });
+    expect(read({ heating: "Fernheizung" })).toMatchObject({ rate: 0.16, score: base + 5 });
+    expect(read({ heating: "Erdwärme" })).toMatchObject({ rate: 0.28, score: base + 5 });
+    expect(read({ heating: "Ölheizung" }).score).toBe(base - 12);
+    expect(read({ heating: "Nachtspeicher" }).score).toBe(base - 12);
+  });
+
+  it("flags gas as fossil heating once, and leaves oil to its own flag", () => {
+    expect(titles(analyze(listing({ ...home, energySource: "Gas" }), assumptions))).toContain("Fossil heating may need replacing");
+    const oil = titles(analyze(listing({ ...home, energySource: "Öl" }), assumptions));
+    expect(oil).toContain("Oil or night-storage heating");
+    expect(oil).not.toContain("Fossil heating may need replacing");
+  });
+
+  it("raises flags from the history, the portal estimate and the text without moving any score", () => {
+    const plain = analyze(home, assumptions);
+    const history = { firstKnownPriceEur: 500000, totalChangeEur: -35000, totalChangePct: -7, reductions: 2, daysOnMarket: 150, startedBasis: "portal" as const };
+    const findings = [
+      { key: "special_levy" as const, label: "Special levy mentioned", snippet: "Eine Sonderumlage wurde beschlossen." },
+      { key: "leasehold" as const, label: "Leasehold mentioned", snippet: "Erbbaurecht bis 2090." },
+    ];
+    const flagged = analyze(listing({ ...home, portalMarketEurPerM2: 5500 }), assumptions, { history, findings });
+    expect(flagged.score).toBe(plain.score);
+    expect(flagged.subscores).toEqual(plain.subscores);
+    expect(titles(flagged)).toEqual(expect.arrayContaining(["Price has been reduced", "Long on the market", "Below the portal's own estimate", "Special levy mentioned", "Leasehold mentioned in the text"]));
+    expect(flagged.flags.find((flag) => flag.title === "Price has been reduced")?.severity).toBe("good");
+    expect(flagged.flags.find((flag) => flag.title === "Price has been reduced")?.detail).toContain("35.000 EUR");
+  });
+
+  it("is quiet when there is little to say: a small cut, days only from the saved date, a close estimate, a negated text", () => {
+    const small = analyze(home, assumptions, { history: { firstKnownPriceEur: 470000, totalChangeEur: -5000, totalChangePct: -1.06, reductions: 1, daysOnMarket: 200, startedBasis: "saved" } });
+    expect(small.flags.find((flag) => flag.title === "Price has been reduced")?.severity).toBe("info");
+    expect(titles(small)).not.toContain("Long on the market");
+    const near = analyze(listing({ ...home, portalMarketEurPerM2: 4500 }), assumptions);
+    expect(titles(near).some((title) => title.includes("portal's own estimate"))).toBe(false);
+    const leased = analyze(listing({ ...home, leasehold: true }), assumptions, { findings: [{ key: "leasehold", label: "Leasehold mentioned", snippet: "Erbbaurecht." }] });
+    expect(titles(leased)).not.toContain("Leasehold mentioned in the text");
+  });
+
+  it("raises none of the buy flags for a rental", () => {
+    const rent = analyze(listing({ ...home, offer: "rent", priceEur: 1450, coldRentEur: 1450, portalMarketEurPerM2: 1 }), assumptions, {
+      history: { firstKnownPriceEur: 2000, totalChangeEur: -550, totalChangePct: -27, reductions: 3, daysOnMarket: 300, startedBasis: "portal" },
+      findings: [{ key: "special_levy", label: "x", snippet: "Sonderumlage." }],
+    });
+    expect(rent.score).toBeNull();
+    expect(titles(rent).filter((title) => ["Price has been reduced", "Long on the market", "Special levy mentioned"].includes(title))).toEqual([]);
+  });
+});

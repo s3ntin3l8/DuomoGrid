@@ -1303,4 +1303,41 @@ describe("listings", () => {
     expect(late.json().priceHistory).toMatchObject({ reductions: 2, increases: 0 });
     await app.close();
   });
+
+  it("adds parking to the cash needed and raises history flags, with the same result on the list and the detail", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const base = {
+      source: "immobilienscout24",
+      sourceUrl: "https://www.immobilienscout24.de/expose/888001",
+      externalId: "888001",
+      title: "Parking",
+      priceEur: 549000,
+      livingAreaM2: 128,
+      city: "Kösching",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+      energyClass: "A+",
+      parkingSpaces: 2,
+      parkingPriceEur: 10000,
+    };
+    const created = await app.inject({ method: "POST", url: "/listings", headers, payload: base });
+    const id = created.json().id as string;
+    expect(created.json().analysis).toMatchObject({ parkingEur: 20000, transferTaxPercent: 3.5 });
+    // 569000 * 3.5 percent: the tax is charged on the parking as well.
+    expect(created.json().analysis.transferTaxEur).toBe(19915);
+    expect(created.json().analysis.pricePerLivingM2).toBeCloseTo(549000 / 128);
+    await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, priceEur: 499000 } });
+
+    type Row = { id: string; analysis: { score: number | null; flags: { title: string }[] } };
+    const viaList = ((await app.inject({ method: "GET", url: "/listings", headers })).json() as Row[]).find((item) => item.id === id) as Row;
+    const viaDetail = (await app.inject({ method: "GET", url: `/listings/${id}`, headers })).json() as Row;
+    expect(viaList.analysis.score).toBe(viaDetail.analysis.score);
+    const titles = viaDetail.analysis.flags.map((flag) => flag.title);
+    expect(titles).toEqual(expect.arrayContaining(["Parking is priced separately", "Price has been reduced"]));
+    expect(viaList.analysis.flags.map((flag) => flag.title)).toEqual(titles);
+    await app.close();
+  });
 });

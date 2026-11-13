@@ -110,6 +110,12 @@ export function Detail({
             <h3>Cash to close {analysis.stateName ? `· ${analysis.stateName}` : ""}</h3>
             <dl>
               <Line label="Price" value={eur(listing.priceEur)} />
+              {analysis.parkingEur != null ? (
+                <Line
+                  label={`Parking, ${analysis.parkingSpaces}× ${eur(analysis.parkingUnitEur)}${analysis.parkingSpacesAssumed ? " (one assumed)" : ""}`}
+                  value={eur(analysis.parkingEur)}
+                />
+              ) : null}
               <Line label={`Transfer tax${analysis.transferTaxPercent != null ? ` ${num(analysis.transferTaxPercent, 1)}%` : ""}`} value={eur(analysis.transferTaxEur)} />
               <Line label="Notary" value={eur(analysis.notaryEur)} />
               <Line label="Land register" value={eur(analysis.registerEur)} />

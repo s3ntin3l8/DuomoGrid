@@ -100,6 +100,10 @@ export type DeskListing = {
     commissionPercent: number | null;
     commissionAssumed: boolean;
     commissionEur: number | null;
+    parkingEur: number | null;
+    parkingUnitEur: number | null;
+    parkingSpaces: number | null;
+    parkingSpacesAssumed: boolean;
     extraEur: number | null;
     cashToCloseEur: number | null;
     equityEur: number | null;
