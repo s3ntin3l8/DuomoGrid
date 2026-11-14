@@ -431,6 +431,8 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   // One adjustment for the heating, never a stack: the worst applicable penalty, or a bonus only when there is none.
   const nowYear = market.nowYear ?? new Date().getFullYear();
   const heatingAge = market.heatingReplacedYear != null ? nowYear - market.heatingReplacedYear : null;
+  // Direct electric heat is priced at its real cost (0.32) but takes no energy adjustment, deliberately: only oil, night
+  // storage and gas are penalised, as before, and the energy class already carries the electric case.
   // A stated heat pump or district heat is not made old by a boiler's age.
   const oldHeating = heatingAge != null && heatingAge >= 30 && fuel !== "heatpump" && fuel !== "district";
   if (oilOrStorage) {
