@@ -79,6 +79,10 @@ export function Gallery({ row, part }: { row: DeskListing; part: "photos" | "flo
     <section className="block">
       <h3>Floor plans</h3>
       {strip}
+      {/* The photo strip carries this note. Without photos the plans must say it themselves. */}
+      {all.some((image) => image.kind === "photo") ? null : (
+        <p className="meta">Images load from the portal and disappear when the listing is taken down.</p>
+      )}
       {lightbox}
     </section>
   );

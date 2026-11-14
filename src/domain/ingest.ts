@@ -86,7 +86,9 @@ function detailsOf(value: unknown): DetailPair[] {
 /** Portal placeholders for "not stated". Same pattern as in extension/extract.js. */
 const ABSENT = /^(no[_ ]information|keine angabe|n\/a)$/i;
 
-const IMAGES_MAX = 40;
+/** Photos and floor plans have their own quotas, so a gallery full of photos can never push the plans out. */
+const PHOTOS_MAX = 30;
+const PLANS_MAX = 10;
 const IMAGE_URL_MAX = 2048;
 
 /** https only, and only from the two portal CDNs. Anything else is dropped, not rewritten. */
@@ -94,6 +96,8 @@ function imagesOf(value: unknown): ImageRef[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
   const images: ImageRef[] = [];
+  let photos = 0;
+  let plans = 0;
   for (const item of value) {
     if (!item || typeof item !== "object") continue;
     const body = item as Record<string, unknown>;
@@ -110,10 +114,14 @@ function imagesOf(value: unknown): ImageRef[] {
     if (url.username || url.password || url.port) continue;
     const href = url.toString();
     if (seen.has(href)) continue;
+    const kind = body.kind === "floorplan" ? "floorplan" : "photo";
+    if (kind === "floorplan" ? plans >= PLANS_MAX : photos >= PHOTOS_MAX) continue;
     seen.add(href);
+    if (kind === "floorplan") plans += 1;
+    else photos += 1;
     const caption = String(body.caption ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
-    images.push({ url: href, caption: caption || null, kind: body.kind === "floorplan" ? "floorplan" : "photo" });
-    if (images.length >= IMAGES_MAX) break;
+    images.push({ url: href, caption: caption || null, kind });
+    if (photos >= PHOTOS_MAX && plans >= PLANS_MAX) break;
   }
   return images;
 }

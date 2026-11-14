@@ -511,7 +511,7 @@ export async function listingsRoute(app: FastifyInstance) {
         coldRentEur: row.offer === "rent" ? nextPrice : row.coldRentEur,
         warmRentEur: row.warmRentEur,
         condoFeeEur: row.condoFeeEur,
-        rawJson: JSON.stringify(request.body ?? {}),
+        rawJson: JSON.stringify(withoutLongText(request.body)),
       }).run();
     });
     const stored = app.db.select().from(listings).where(eq(listings.id, row.id)).all()[0];

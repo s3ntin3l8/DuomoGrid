@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
 import { energySourceOf, parseIngest } from "../../src/domain/ingest.js";
+import { IMAGE_HOSTS } from "../../src/domain/types.js";
 
 describe("parseIngest location", () => {
   it("keeps an in-range point and marks it exact", () => {
@@ -219,7 +221,7 @@ describe("parseIngest images", () => {
         { url: "http://mms.immowelt.de/x.jpg" },
         { url: "https://evil.example/x.jpg" },
         { url: "https://mms.immowelt.de.evil.example/x.jpg" },
-        { url: "https://user:pass@mms.immowelt.de/x.jpg" },
+        { url: "https://user:pass@mms.immowelt.de/x.jpg" }, // pragma: allowlist secret (a hostile URL on purpose)
         { url: "javascript:alert(1)" },
         { url: "data:image/png;base64,AAAA" },
         { url: "not a url" },
@@ -262,11 +264,24 @@ describe("parseIngest images", () => {
     expect(empty.provided.has("images")).toBe(true);
   });
 
-  it("caps the list at 40", () => {
-    const images = Array.from({ length: 60 }, (_, index) => ({ url: `https://mms.immowelt.de/${index}.jpg` }));
-    const parsed = parseIngest({ title: "Many", images });
+  it("caps photos at 30 and floor plans at 10 apart, so many photos never push the plans out", () => {
+    const photos = Array.from({ length: 45 }, (_, index) => ({ url: `https://mms.immowelt.de/p${index}.jpg` }));
+    const plans = Array.from({ length: 14 }, (_, index) => ({ url: `https://mms.immowelt.de/f${index}.jpg`, kind: "floorplan" }));
+    const parsed = parseIngest({ title: "Many", images: [...photos, ...plans] });
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.listing.images).toHaveLength(40);
+    expect(parsed.listing.images.filter((image) => image.kind === "photo")).toHaveLength(30);
+    expect(parsed.listing.images.filter((image) => image.kind === "floorplan")).toHaveLength(10);
+    // The first of each kind is kept, in the order they came.
+    expect(parsed.listing.images[0]?.url).toContain("p0.jpg");
+    expect(parsed.listing.images.find((image) => image.kind === "floorplan")?.url).toContain("f0.jpg");
+  });
+
+  it("keeps the extension's host list the same as the server's", () => {
+    const source = fs.readFileSync(new URL("../../extension/extract.js", import.meta.url), "utf8");
+    const match = /const IMAGE_HOSTS = \[([^\]]*)\]/.exec(source);
+    expect(match).not.toBeNull();
+    const extensionHosts = [...(match?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((item) => item[1]).sort();
+    expect(extensionHosts).toEqual([...IMAGE_HOSTS].sort());
   });
 });

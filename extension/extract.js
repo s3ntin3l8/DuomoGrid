@@ -433,7 +433,9 @@
     return pairs;
   }
 
-  const IMAGES_MAX = 40;
+  /** Same quotas as the server: photos and plans are capped apart, so many photos never push the plans out. */
+  const PHOTOS_MAX = 30;
+  const PLANS_MAX = 10;
   /** Same hosts as IMAGE_HOSTS in src/domain/types.ts. The server is the gate; this keeps a stray URL out of the payload. */
   const IMAGE_HOSTS = ["pictures.immobilienscout24.de", "mms.immowelt.de"];
 
@@ -445,7 +447,8 @@
 
   function addImage(list, seen, url, caption, kind) {
     const href = typeof url === "string" ? url.trim() : "";
-    if (!/^https:\/\//.test(href) || list.length >= IMAGES_MAX) return;
+    if (!/^https:\/\//.test(href)) return;
+    if (list.filter((image) => image.kind === kind).length >= (kind === "floorplan" ? PLANS_MAX : PHOTOS_MAX)) return;
     try {
       if (!IMAGE_HOSTS.includes(new URL(href).hostname)) return;
     } catch {
@@ -765,7 +768,7 @@
     const heatingSystem = heatingSystemOf(pick(records, ["heatingsystem"])) ?? heatingSystemOf(heatingType);
     const energySource = energySourceOf(pick(records, ["energysource"]) ?? firing);
     const detailPairs = Array.isArray(page.details) ? page.details.slice(0, 40) : [];
-    const imageList = Array.isArray(page.images) ? page.images.slice(0, IMAGES_MAX) : [];
+    const imageList = Array.isArray(page.images) ? page.images.slice(0, PHOTOS_MAX + PLANS_MAX) : [];
     const leasehold = yes(pick(records, ["objleasehold", "leasehold", "erbpacht"])) || /\b(erbpacht|erbbaurecht)\b/i.test(description);
     const monument = yes(pick(records, ["objlisted", "listed", "denkmal", "monument"])) || /denkmalschutz/i.test(description);
     const rentedOut = yes(pick(records, ["objrented", "rented", "vermietet"])) || /(?<!nicht\s)\bvermietet\b/i.test(description);

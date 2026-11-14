@@ -223,6 +223,41 @@ describe("extract a saved exposé document", () => {
     expect(unavailable.listing).toMatchObject({ latitude: null, longitude: null, locationPrecision: null });
   });
 
+  it("keeps the floor plans of a listing with more photos than the cap, on both portals", () => {
+    const photos = Array.from({ length: 45 }, (_, index) => `https://mms.immowelt.de/p${index}-0000-4000-8000-000000000000.jpg`);
+    const classified = {
+      metadata: { legacyId: "iw-many" },
+      rawData: { distributionType: "BUY", propertyType: "APARTMENT" },
+      domains: {
+        medias: {
+          images: photos.map((url) => ({ url, description: "photo" })),
+          floorplans: [{ url: "https://mms.immowelt.de/plan-0000-4000-8000-000000000001.jpg", description: "plan" }],
+        },
+      },
+      sections: {},
+    };
+    const root = { app_demand_referral_cldp: { data: { classified } } };
+    const html = `<!doctype html><html><head><script id="__UFRN_LIFECYCLE_SERVERREQUEST__">window["__UFRN_LIFECYCLE_SERVERREQUEST__"]=JSON.parse(${JSON.stringify(JSON.stringify(root))});</script></head><body></body></html>`;
+    const iw = extractHtml(html, "https://www.immowelt.de/expose/iw-many");
+    expect(iw.ok).toBe(true);
+    if (!iw.ok) return;
+    const iwImages = (iw.listing as Record<string, unknown>).images as { kind: string }[];
+    expect(iwImages.filter((image) => image.kind === "photo")).toHaveLength(30);
+    expect(iwImages.filter((image) => image.kind === "floorplan")).toHaveLength(1);
+
+    const gallery = [
+      ...Array.from({ length: 45 }, (_, index) => ({ id: String(index), caption: "photo", fullSizePictureUrl: `https://pictures.immobilienscout24.de/listings/aaaaaaaa-0000-4000-8000-${String(index).padStart(12, "0")}.jpeg`, type: "PICTURE" })),
+      { id: "p", caption: "plan", fullSizePictureUrl: "https://pictures.immobilienscout24.de/listings/bbbbbbbb-0000-4000-8000-000000000001.jpeg", type: "FLOORPLAN" },
+    ];
+    const is24Html = `<!doctype html><html><head><script>keyValues = {"obj_purchasePrice":"1","obj_scoutId":"9"}; IS24.expose = { galleryData: ${JSON.stringify({ images: gallery })} };</script></head><body></body></html>`;
+    const is24 = extractHtml(is24Html, "https://www.immobilienscout24.de/expose/9");
+    expect(is24.ok).toBe(true);
+    if (!is24.ok) return;
+    const is24Images = (is24.listing as Record<string, unknown>).images as { kind: string }[];
+    expect(is24Images.filter((image) => image.kind === "photo")).toHaveLength(30);
+    expect(is24Images.filter((image) => image.kind === "floorplan")).toHaveLength(1);
+  });
+
   it("does not read the next object when locationAddress is null", () => {
     const html = `<!doctype html><html><head><script>
       IS24.expose = {locationAddress: null, other: {city: "Wrongtown"}};
