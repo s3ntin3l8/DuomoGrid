@@ -433,6 +433,63 @@
     return pairs;
   }
 
+  /** Same quotas as the server: photos and plans are capped apart, so many photos never push the plans out. */
+  const PHOTOS_MAX = 30;
+  const PLANS_MAX = 10;
+  /** Same hosts as IMAGE_HOSTS in src/domain/types.ts. The server is the gate; this keeps a stray URL out of the payload. */
+  const IMAGE_HOSTS = ["pictures.immobilienscout24.de", "mms.immowelt.de"];
+
+  /** Same picture, different size variant: key on the id in the path when there is one. */
+  function imageKey(url) {
+    const found = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.exec(url);
+    return found ? found[1].toLowerCase() : url;
+  }
+
+  function withinQuota(list, kind) {
+    return list.filter((image) => image.kind === kind).length < (kind === "floorplan" ? PLANS_MAX : PHOTOS_MAX);
+  }
+
+  function addImage(list, seen, url, caption, kind) {
+    const href = typeof url === "string" ? url.trim() : "";
+    if (!/^https:\/\//.test(href)) return;
+    if (!withinQuota(list, kind)) return;
+    try {
+      if (!IMAGE_HOSTS.includes(new URL(href).hostname)) return;
+    } catch {
+      return;
+    }
+    const key = imageKey(href);
+    if (seen.has(key)) return;
+    seen.add(key);
+    list.push({ url: href, caption: cleanText(caption).slice(0, 120) || null, kind });
+  }
+
+  function immoweltImages(c) {
+    const list = [];
+    const seen = new Set();
+    const medias = at(c, ["domains", "medias"]) || {};
+    for (const image of medias.images || []) addImage(list, seen, image.url, image.description, "photo");
+    for (const plan of medias.floorplans || []) addImage(list, seen, plan.url, plan.description, "floorplan");
+    return list;
+  }
+
+  /** The gallery marks plans as FLOORPLAN. The documents list repeats them, so it only fills a gap. */
+  function is24Images(blob) {
+    const list = [];
+    const seen = new Set();
+    const gallery = assignedObject(blob, "galleryData");
+    for (const image of (gallery && gallery.images) || []) {
+      const kind = image.type === "FLOORPLAN" ? "floorplan" : "photo";
+      if (image.type && image.type !== "PICTURE" && image.type !== "FLOORPLAN") continue;
+      addImage(list, seen, image.fullSizePictureUrl || image.galleryPictureUrl, image.caption, kind);
+    }
+    const links = assignedObject(blob, '"linksAndDocuments"');
+    for (const item of (links && links.items) || []) {
+      if (item.floorPlan === true) addImage(list, seen, item.url, item.caption, "floorplan");
+    }
+    return list;
+  }
+
   /** The dt/dd pairs ImmoScout24 renders. Soft hyphens and long explanations are dropped. */
   function dlPairs(doc) {
     const pairs = [];
@@ -715,6 +772,11 @@
     const heatingSystem = heatingSystemOf(pick(records, ["heatingsystem"])) ?? heatingSystemOf(heatingType);
     const energySource = energySourceOf(pick(records, ["energysource"]) ?? firing);
     const detailPairs = Array.isArray(page.details) ? page.details.slice(0, 40) : [];
+    // The quota is enforced here too, so a direct caller of buildListing gets the same invariant as the extractor.
+    const imageList = [];
+    for (const image of Array.isArray(page.images) ? page.images : []) {
+      if (image && withinQuota(imageList, image.kind === "floorplan" ? "floorplan" : "photo")) imageList.push(image);
+    }
     const leasehold = yes(pick(records, ["objleasehold", "leasehold", "erbpacht"])) || /\b(erbpacht|erbbaurecht)\b/i.test(description);
     const monument = yes(pick(records, ["objlisted", "listed", "denkmal", "monument"])) || /denkmalschutz/i.test(description);
     const rentedOut = yes(pick(records, ["objrented", "rented", "vermietet"])) || /(?<!nicht\s)\bvermietet\b/i.test(description);
@@ -823,6 +885,8 @@
         // Left out when nothing was found, so a page that failed to load a section never blanks what is stored.
         ...(hasDescription ? { description: descriptionParts } : {}),
         ...(detailPairs.length > 0 ? { details: detailPairs } : {}),
+        // Left out when none were found, so a gallery that had not loaded yet never blanks the stored images.
+        ...(imageList.length > 0 ? { images: imageList } : {}),
       },
     };
   }
@@ -857,7 +921,8 @@
     const labeled = domRecord(doc);
     if (Object.keys(labeled).length) records.push(labeled);
     const details = classified ? immoweltDetails(classified) : dlPairs(doc);
-    return buildListing(records, { href, title: pageTitle(doc), text: pageText(doc), details });
+    const images = classified ? immoweltImages(classified) : is24Images(blob);
+    return buildListing(records, { href, title: pageTitle(doc), text: pageText(doc), details, images });
   }
 
   globalThis.duomoExtract = extractListing;

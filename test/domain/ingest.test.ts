@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
 import { energySourceOf, parseIngest } from "../../src/domain/ingest.js";
+import { IMAGE_HOSTS, IMAGE_QUOTA } from "../../src/domain/types.js";
 
 describe("parseIngest location", () => {
   it("keeps an in-range point and marks it exact", () => {
@@ -188,5 +190,104 @@ describe("parseIngest details", () => {
     expect(energySourceOf("Nachtspeicher")).toBe("Strom");
     expect(energySourceOf("Brennstoffzelle")).toBe("Brennstoffzelle");
     expect(energySourceOf("")).toBeNull();
+  });
+});
+
+describe("parseIngest images", () => {
+  const ok = "https://pictures.immobilienscout24.de/listings/a-1.jpeg/ORIG/resize/1106x830%3E/format/webp/quality/73";
+
+  it("keeps https images from the two portal CDNs, split into photos and floor plans", () => {
+    const parsed = parseIngest({
+      title: "Pictures",
+      images: [
+        { url: ok, caption: " Titelbild ", kind: "photo" },
+        { url: "https://mms.immowelt.de/1/0/2/c/x.jpg", kind: "floorplan", caption: "1. OG" },
+        { url: ok, caption: "duplicate" },
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing.images).toEqual([
+      { url: ok, caption: "Titelbild", kind: "photo" },
+      { url: "https://mms.immowelt.de/1/0/2/c/x.jpg", caption: "1. OG", kind: "floorplan" },
+    ]);
+    expect(parsed.provided.has("images")).toBe(true);
+  });
+
+  it("drops every other host, scheme and shape, without rewriting any of them", () => {
+    const parsed = parseIngest({
+      title: "Bad pictures",
+      images: [
+        { url: "http://mms.immowelt.de/x.jpg" },
+        { url: "https://evil.example/x.jpg" },
+        { url: "https://mms.immowelt.de.evil.example/x.jpg" },
+        { url: "https://user:pass@mms.immowelt.de/x.jpg" }, // pragma: allowlist secret (a hostile URL on purpose)
+        { url: "javascript:alert(1)" },
+        { url: "data:image/png;base64,AAAA" },
+        { url: "not a url" },
+        "https://mms.immowelt.de/x.jpg",
+        null,
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing.images).toEqual([]);
+  });
+
+  it("refuses a port, a trailing dot and an over-long URL, and normalises case and a backslash to the real host", () => {
+    const long = `https://mms.immowelt.de/${"a".repeat(2100)}.jpg`;
+    const parsed = parseIngest({
+      title: "Tricks",
+      images: [
+        { url: "https://mms.immowelt.de:8443/a.jpg" },
+        { url: "https://mms.immowelt.de./a.jpg" },
+        { url: long },
+        { url: "https://MMS.Immowelt.DE/Upper.jpg", caption: "upper" },
+        { url: "https:\\mms.immowelt.de\\back.jpg", caption: "back" },
+        { url: "https://mms.immowelt.de\\@evil.example/x.jpg" },
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const urls = parsed.listing.images.map((image) => new URL(image.url).host);
+    expect(urls.every((host) => host === "mms.immowelt.de")).toBe(true);
+    expect(parsed.listing.images.map((image) => image.caption)).toEqual(expect.arrayContaining(["upper", "back"]));
+    expect(parsed.listing.images.some((image) => image.url.includes(":8443") || image.url.length > 2100)).toBe(false);
+  });
+
+  it("does not count a list of only refused URLs as provided, but does count an explicit empty list", () => {
+    const refused = parseIngest({ title: "Refused", images: [{ url: "https://evil.example/x.jpg" }] });
+    const empty = parseIngest({ title: "Empty", images: [] });
+    expect(refused.ok && empty.ok).toBe(true);
+    if (!refused.ok || !empty.ok) return;
+    expect(refused.provided.has("images")).toBe(false);
+    expect(empty.provided.has("images")).toBe(true);
+  });
+
+  it("caps photos at 30 and floor plans at 10 apart, so many photos never push the plans out", () => {
+    const photos = Array.from({ length: 45 }, (_, index) => ({ url: `https://mms.immowelt.de/p${index}.jpg` }));
+    const plans = Array.from({ length: 14 }, (_, index) => ({ url: `https://mms.immowelt.de/f${index}.jpg`, kind: "floorplan" }));
+    const parsed = parseIngest({ title: "Many", images: [...photos, ...plans] });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing.images.filter((image) => image.kind === "photo")).toHaveLength(30);
+    expect(parsed.listing.images.filter((image) => image.kind === "floorplan")).toHaveLength(10);
+    // The first of each kind is kept, in the order they came.
+    expect(parsed.listing.images[0]?.url).toContain("p0.jpg");
+    expect(parsed.listing.images.find((image) => image.kind === "floorplan")?.url).toContain("f0.jpg");
+  });
+
+  it("keeps the extension's quotas the same as the server's", () => {
+    const source = fs.readFileSync(new URL("../../extension/extract.js", import.meta.url), "utf8");
+    expect(Number(/const PHOTOS_MAX = (\d+)/.exec(source)?.[1])).toBe(IMAGE_QUOTA.photo);
+    expect(Number(/const PLANS_MAX = (\d+)/.exec(source)?.[1])).toBe(IMAGE_QUOTA.floorplan);
+  });
+
+  it("keeps the extension's host list the same as the server's", () => {
+    const source = fs.readFileSync(new URL("../../extension/extract.js", import.meta.url), "utf8");
+    const match = /const IMAGE_HOSTS = \[([^\]]*)\]/.exec(source);
+    expect(match).not.toBeNull();
+    const extensionHosts = [...(match?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((item) => item[1]).sort();
+    expect(extensionHosts).toEqual([...IMAGE_HOSTS].sort());
   });
 });

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { DeskListing, ListingPatch, StateOption } from "./api";
+import { Gallery } from "./Gallery";
 import { area, eur, num, perM2Text, propertyLabel, statusLabel, STATUSES, when } from "./format";
 
 export function Detail({
@@ -69,6 +70,7 @@ export function Detail({
           ) : null}
         </p>
       ) : null}
+      <Gallery row={row} part="photos" />
       <div className="hero">
         <div>
           <p className="price">{eur(listing.priceEur)}</p>
@@ -166,6 +168,7 @@ export function Detail({
         ) : null}
       </section>
       <Facts row={row} />
+      <Gallery row={row} part="floorplans" />
       <Findings row={row} />
       <DescriptionText row={row} />
       {row.observations.length > 1 ? (

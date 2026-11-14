@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import cors from "@fastify/cors";
+import { IMAGE_HOSTS } from "../domain/types.js";
 
 export const securityPlugin = fp(async (app: FastifyInstance) => {
   // The desk map loads its basemap from OpenFreeMap. Helmet's default-src
@@ -12,7 +13,7 @@ export const securityPlugin = fp(async (app: FastifyInstance) => {
     contentSecurityPolicy: {
       directives: {
         "connect-src": ["'self'", "https://tiles.openfreemap.org"],
-        "img-src": ["'self'", "data:", "blob:", "https://tiles.openfreemap.org"],
+        "img-src": ["'self'", "data:", "blob:", "https://tiles.openfreemap.org", ...IMAGE_HOSTS.map((host) => `https://${host}`)],
         "worker-src": ["'self'", "blob:"],
       },
     },

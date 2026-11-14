@@ -1,5 +1,6 @@
 import { parseState } from "./reference.js";
-import type { DetailPair, EnergyCert, ListingDescription, ListingInput, Offer, ParkingType, PropertyType, Source } from "./types.js";
+import { IMAGE_HOSTS, IMAGE_QUOTA } from "./types.js";
+import type { DetailPair, EnergyCert, ImageRef, ListingDescription, ListingInput, Offer, ParkingType, PropertyType, Source } from "./types.js";
 
 /** Keys added after the first extension release. A body that lacks one keeps the stored value on a re-save. */
 export const EXTRA_KEYS = [
@@ -18,6 +19,7 @@ export const EXTRA_KEYS = [
   "portalMarketHighEurPerM2",
   "description",
   "details",
+  "images",
 ] as const;
 export type ExtraKey = (typeof EXTRA_KEYS)[number];
 
@@ -83,6 +85,43 @@ function detailsOf(value: unknown): DetailPair[] {
 
 /** Portal placeholders for "not stated". Same pattern as in extension/extract.js. */
 const ABSENT = /^(no[_ ]information|keine angabe|n\/a)$/i;
+
+const IMAGE_URL_MAX = 2048;
+
+/** https only, and only from the two portal CDNs. Anything else is dropped, not rewritten. */
+function imagesOf(value: unknown): ImageRef[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const images: ImageRef[] = [];
+  let photos = 0;
+  let plans = 0;
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const body = item as Record<string, unknown>;
+    const raw = String(body.url ?? "");
+    if (raw.length > IMAGE_URL_MAX) continue;
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      continue;
+    }
+    if (url.protocol !== "https:" || !(IMAGE_HOSTS as readonly string[]).includes(url.hostname)) continue;
+    // The desk's CSP allows the host on its default port only, so another port is a broken image, not a CDN URL.
+    if (url.username || url.password || url.port) continue;
+    const href = url.toString();
+    if (seen.has(href)) continue;
+    const kind = body.kind === "floorplan" ? "floorplan" : "photo";
+    if (kind === "floorplan" ? plans >= IMAGE_QUOTA.floorplan : photos >= IMAGE_QUOTA.photo) continue;
+    seen.add(href);
+    if (kind === "floorplan") plans += 1;
+    else photos += 1;
+    const caption = String(body.caption ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    images.push({ url: href, caption: caption || null, kind });
+    if (photos >= IMAGE_QUOTA.photo && plans >= IMAGE_QUOTA.floorplan) break;
+  }
+  return images;
+}
 
 /** Known fuels become one canonical label so analysis can match on it. Anything else stays as published. */
 export function energySourceOf(value: unknown): string | null {
@@ -255,6 +294,10 @@ export function parseIngest(input: unknown): IngestResult {
   const coldRent = looseNumber(body.coldRentEur);
   const title = String(body.title ?? "").replace(/\s+/g, " ").trim() || "Listing";
   const provided = new Set<ExtraKey>(EXTRA_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(body, key)));
+  const images = imagesOf(body.images);
+  // A list in which every URL was refused (a changed CDN host, one stray entry) must not blank stored images.
+  // Only an explicit empty list says "there are none".
+  if (images.length === 0 && Array.isArray(body.images) && body.images.length > 0) provided.delete("images");
   const point = pointOf(body.latitude ?? body.lat ?? body.geoLat, body.longitude ?? body.lng ?? body.lon ?? body.geoLng ?? body.geoLong, body.locationPrecision);
   return {
     ok: true,
@@ -313,6 +356,7 @@ export function parseIngest(input: unknown): IngestResult {
       portalMarketHighEurPerM2: positiveNumber(body.portalMarketHighEurPerM2),
       description: descriptionOf(body.description),
       details: detailsOf(body.details),
+      images,
     },
     provided,
   };

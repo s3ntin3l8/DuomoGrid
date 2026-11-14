@@ -50,6 +50,13 @@
       "when": 1794612144734,
       "tag": "0006_brown_medusa",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794612630013,
+      "tag": "0007_cooing_mephisto",
+      "breakpoints": true
     }
   ]
 }

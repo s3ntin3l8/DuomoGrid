@@ -70,6 +70,7 @@ export const listings = sqliteTable("listings", {
   portalMarketHighEurPerM2: real("portal_market_high_eur_per_m2"),
   descriptionJson: text("description_json"),
   detailsJson: text("details_json"),
+  imagesJson: text("images_json"),
   notes: text("notes").notNull().default(""),
   status: text("status").notNull().default("open"),
   createdAt: text("created_at").notNull(),
