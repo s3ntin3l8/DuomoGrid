@@ -116,6 +116,12 @@ export type Assumptions = {
   notaryPercent: number;
   registerPercent: number;
   fallbackCommissionPercent: number;
+  /** Upkeep of a house you own, per m2 of living area and year, before the age factor. A flat's Hausgeld already covers it. */
+  maintenanceEurPerM2Year: number;
+  /** Grundsteuer for a house you own, per year. */
+  propertyTaxEurYear: number;
+  /** Building insurance for a house you own, per m2 of living area and year. */
+  insuranceEurPerM2Year: number;
   monthlyBudgetEur: number | null;
   targetEurPerM2: number | null;
   defaultState: StateId | null;
@@ -130,6 +136,9 @@ export const DEFAULT_ASSUMPTIONS: Assumptions = {
   notaryPercent: 1.5,
   registerPercent: 0.5,
   fallbackCommissionPercent: 3.57,
+  maintenanceEurPerM2Year: 10,
+  propertyTaxEurYear: 450,
+  insuranceEurPerM2Year: 2.5,
   monthlyBudgetEur: null,
   targetEurPerM2: null,
   defaultState: null,

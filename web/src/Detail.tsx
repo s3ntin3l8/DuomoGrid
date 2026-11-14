@@ -147,6 +147,13 @@ export function Detail({
             <Line label="Heating estimate" value={eur(analysis.monthlyHeating)} />
             <Line label="Condo fee" value={eur(analysis.monthlyCondoFee)} />
             {listing.leasehold ? <Line label="Ground rent" value={eur(analysis.monthlyGroundRent)} /> : null}
+            {buy && (listing.propertyType === "house" || listing.propertyType === "multi") ? (
+              <>
+                <Line label="Maintenance" value={eur(analysis.monthlyMaintenance)} />
+                <Line label="Property tax" value={eur(analysis.monthlyPropertyTax)} />
+                <Line label="Insurance" value={eur(analysis.monthlyInsurance)} />
+              </>
+            ) : null}
             <Line label={analysis.monthlyTotal != null ? "Total" : "Known so far"} value={eur(analysis.monthlyTotal ?? analysis.monthlyPartial)} total />
           </dl>
           {analysis.grossYield != null ? <p className="note">Gross yield {num(analysis.grossYield, 1)}% on the cold rent you entered.</p> : null}

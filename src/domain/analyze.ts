@@ -39,6 +39,10 @@ export type Analysis = {
   heatingEuroPerKwh: number | null;
   monthlyCondoFee: number | null;
   monthlyGroundRent: number | null;
+  /** House or multi-family house you buy, from living area and building age. Null for anything else, and when the area is unknown. */
+  monthlyMaintenance: number | null;
+  monthlyPropertyTax: number | null;
+  monthlyInsurance: number | null;
   monthlyTotal: number | null;
   monthlyPartial: number | null;
   grossYield: number | null;
@@ -103,6 +107,17 @@ function fuelOf(listing: ListingInput): Fuel | null {
   if (/bio-?gas/.test(text)) return "biogas";
   if (text.includes("gas")) return "gas";
   return null;
+}
+
+/** Older buildings need more upkeep. The newer of the build and refurbishment years counts. Unknown age is the middle band. */
+function upkeepAgeFactor(listing: ListingInput, nowYear: number): number {
+  const year = Math.max(listing.yearBuilt ?? 0, listing.yearRefurbished ?? 0);
+  if (year <= 0) return 1;
+  const age = nowYear - year;
+  if (age < 10) return 0.5;
+  if (age < 30) return 1;
+  if (age < 60) return 1.4;
+  return 1.8;
 }
 
 function figure(value: number): string {
@@ -275,9 +290,23 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   const euroKwh = fuel ? FUEL_RATE[fuel] : 0.12;
   const annualHeating = kwh != null && living != null && living > 0 && listing.propertyType !== "land" ? roundEuro(kwh * living * euroKwh) : null;
   const monthlyHeating = annualHeating != null ? roundEuro(annualHeating / 12) : null;
-  const monthlyCondoFee = listing.condoFeeEur != null ? roundEuro(listing.condoFeeEur) : listing.propertyType === "house" ? 0 : null;
+  const monthlyCondoFee = listing.condoFeeEur != null ? roundEuro(listing.condoFeeEur) : listing.propertyType === "house" || listing.propertyType === "multi" ? 0 : null;
   const monthlyGroundRent = listing.leasehold ? roundEuro(listing.groundRentEur ?? 0) : 0;
-  const monthlyParts = [monthlyDebt, monthlyHeating, monthlyCondoFee, listing.leasehold ? monthlyGroundRent : 0];
+  // A flat's Hausgeld covers upkeep and insurance. A house you own has no Hausgeld, so these stand in for it.
+  // Without a living area they are unknown, so the total stays partial. They are never counted as 0.
+  const ownsBuilding = buy && (listing.propertyType === "house" || listing.propertyType === "multi");
+  const upkeepFactor = upkeepAgeFactor(listing, market.nowYear ?? new Date().getFullYear());
+  const hasLiving = living != null && living > 0;
+  const monthlyMaintenance = ownsBuilding && hasLiving ? roundEuro((assumptions.maintenanceEurPerM2Year * upkeepFactor * living) / 12) : null;
+  const monthlyInsurance = ownsBuilding && hasLiving ? roundEuro((assumptions.insuranceEurPerM2Year * living) / 12) : null;
+  const monthlyPropertyTax = ownsBuilding ? roundEuro(assumptions.propertyTaxEurYear / 12) : null;
+  const monthlyParts = [
+    monthlyDebt,
+    monthlyHeating,
+    monthlyCondoFee,
+    listing.leasehold ? monthlyGroundRent : 0,
+    ...(ownsBuilding ? [monthlyMaintenance, monthlyPropertyTax, monthlyInsurance] : []),
+  ];
   const knownMonthly = monthlyParts.filter((part): part is number => part != null);
   const monthlyPartial = knownMonthly.length ? knownMonthly.reduce((sum, part) => sum + part, 0) : null;
   const monthlyComplete = buy && monthlyParts.every((part) => part != null);
@@ -348,7 +377,7 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
     }
   }
   if (assumptions.monthlyBudgetEur && monthlyTotal != null && monthlyTotal > assumptions.monthlyBudgetEur) {
-    flags.push({ severity: "warn", title: "Above the monthly budget", detail: "Loan, condo fee, heating, and ground rent together sit above the budget you set." });
+    flags.push({ severity: "warn", title: "Above the monthly budget", detail: "Loan, condo fee, heating, ground rent, and for a house its upkeep, property tax and insurance together sit above the budget you set." });
   }
   if (listing.yearBuilt != null && listing.yearBuilt >= 2020) {
     flags.push({ severity: "good", title: "New build", detail: "Warranty and energy use are usually easier. Still read the condo fee and the maintenance reserve." });
@@ -518,7 +547,7 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
     commissionPercent, commissionAssumed, commissionEur, parkingEur, parkingUnitEur, parkingSpaces, parkingSpacesAssumed,
     extraEur, cashToCloseEur, equityEur, loanEur, equityCoversCosts,
     monthlyDebt, initialRepaymentPercent, monthlyHeating, annualHeating, heatingKwh: kwh,
-    heatingEuroPerKwh: listing.propertyType === "land" ? null : euroKwh, monthlyCondoFee, monthlyGroundRent, monthlyTotal,
+    heatingEuroPerKwh: listing.propertyType === "land" ? null : euroKwh, monthlyCondoFee, monthlyGroundRent, monthlyMaintenance, monthlyPropertyTax, monthlyInsurance, monthlyTotal,
     monthlyPartial, grossYield, benchmark, benchmarkDeltaPct, subscores: normalized, score, verdict, flags,
   };
 }
