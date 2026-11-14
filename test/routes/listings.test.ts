@@ -1223,6 +1223,35 @@ describe("listings", () => {
     await app.close();
   });
 
+  it("counts prices seen, not rows, and lets the portal's price win over a hand-corrected one", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const base = {
+      source: "immowelt",
+      sourceUrl: "https://www.immowelt.de/expose/seen1",
+      externalId: "seen1",
+      title: "Seen",
+      livingAreaM2: 100,
+      city: "Hepberg",
+      state: "BY",
+      propertyType: "apartment",
+      listingKind: "sale",
+    };
+    // The first save had no price, so a row exists but no price has been seen. The earlier price is still accepted.
+    const first = await app.inject({ method: "POST", url: "/listings", headers, payload: base });
+    const id = first.json().id as string;
+    const priced = await app.inject({ method: "POST", url: "/listings", headers, payload: { ...base, priceEur: 300000, portalPreviousPriceEur: 320000 } });
+    expect(priced.json().priceHistory.points.map((point: { priceEur: number }) => point.priceEur)).toEqual([320000, 300000]);
+    expect(app.db.select().from(listings).where(eq(listings.id, id)).all()[0]?.portalPreviousPriceEur).toBe(320000);
+
+    // A price corrected by hand is an observation, and the portal's price replaces it on the next price check.
+    await app.inject({ method: "PATCH", url: `/listings/${id}`, headers, payload: { priceEur: 250000 } });
+    const checked = await app.inject({ method: "POST", url: "/listings?updateOnly=1", headers, payload: { ...base, priceEur: 300000 } });
+    expect(checked.json().listing.priceEur).toBe(300000);
+    await app.close();
+  });
+
   it("keeps a rental's cold rent in step when an update-only save sees a new rent", async () => {
     process.env.INGEST_TOKEN = "test-token";
     const app = await buildApp();

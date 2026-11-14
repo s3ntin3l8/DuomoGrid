@@ -50,7 +50,9 @@ async function handleSeen(listing, api = globalThis.chrome, send = globalThis.fe
   const token = String(settings.ingestToken || "").trim();
   if (!settings.autoUpdate) return { status: "off" };
   if (!/^https?:\/\//.test(apiUrl) || !token) return { status: "not-configured" };
-  const key = String(listing?.sourceUrl || "");
+  // The portal's own id identifies the exposé, as it does on the server. The address carries per-visit parameters, so it
+  // is only the fallback.
+  const key = listing?.source && listing?.externalId ? `${listing.source}:${listing.externalId}` : String(listing?.sourceUrl || "");
   if (!key) return { status: "skipped" };
   if (inFlight.has(key)) return { status: "throttled" };
   inFlight.add(key);

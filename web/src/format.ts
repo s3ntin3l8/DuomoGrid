@@ -21,13 +21,6 @@ export function area(value: number | null | undefined): string {
   return `${num(value, value % 1 === 0 ? 0 : 1)} m²`;
 }
 
-export function priceMove(observations: { priceEur: number | null }[]): number | null {
-  const current = observations[0]?.priceEur;
-  const previous = observations[1]?.priceEur;
-  if (current == null || previous == null || !(previous > 0) || current === previous) return null;
-  return ((current - previous) / previous) * 100;
-}
-
 export function moveLabel(change: number | null): string | null {
   if (change == null || !Number.isFinite(change)) return null;
   const rounded = Math.round(Math.abs(change)) * Math.sign(change);
@@ -38,11 +31,6 @@ export function moveLabel(change: number | null): string | null {
 export function perM2Text(buy: boolean, perM2: number | null | undefined): string | null {
   if (perM2 == null || !Number.isFinite(perM2)) return null;
   return `${eur(perM2, buy ? 0 : 2)} / m²`;
-}
-
-export function priceMoveText(change: number | null): string | null {
-  const label = moveLabel(change);
-  return label == null ? null : `price ${label}`;
 }
 
 export type DeskHistory = {

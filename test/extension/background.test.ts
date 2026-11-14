@@ -117,6 +117,19 @@ describe("auto-update in the background worker", () => {
     expect(await run(chromeWith(on), fine)).toEqual({ status: "updated" });
   });
 
+  it("keys the throttle on the portal id, so the same exposé opened from another link is still one", async () => {
+    const send = vi.fn(async () => ({ status: 200, ok: true }));
+    const api = chromeWith(on);
+    const a = { source: "immowelt", externalId: "abc", sourceUrl: "https://www.immowelt.de/expose/abc?from=search" };
+    const b = { source: "immowelt", externalId: "abc", sourceUrl: "https://www.immowelt.de/expose/abc?from=map&x=1" };
+    const other = { source: "immowelt", externalId: "zzz", sourceUrl: "https://www.immowelt.de/expose/zzz" };
+    const seen = (listing: unknown) => (globalThis as BackgroundGlobals).duomoHandleSeen(listing, api, send, now);
+    expect((await seen(a)).status).toBe("updated");
+    expect((await seen(b)).status).toBe("throttled");
+    expect((await seen(other)).status).toBe("updated");
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores a listing without a source url", async () => {
     const send = vi.fn();
     const result = await (globalThis as BackgroundGlobals).duomoHandleSeen({ title: "x" }, chromeWith(on), send, now);

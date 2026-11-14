@@ -315,8 +315,9 @@ export async function listingsRoute(app: FastifyInstance) {
     }
   }
 
-  function observationCount(listingId: string): number {
-    return app.db.select().from(observations).where(eq(observations.listingId, listingId)).all().length;
+  /** How many prices this desk has seen. A row without a price is not one. */
+  function pricesSeen(listingId: string): number {
+    return app.db.select().from(observations).where(eq(observations.listingId, listingId)).all().filter((row) => row.priceEur != null).length;
   }
 
   function prices(): Map<string, number | null> {
@@ -568,7 +569,7 @@ export async function listingsRoute(app: FastifyInstance) {
       const seen = listing.priceEur;
       const priceChanged = seen != null && seen > 0 && known !== seen;
       const listedAt = listing.listedAt ?? existing.listedAt;
-      const earlier = existing.portalPreviousPriceEur ?? (observationCount(existing.id) <= 1 ? listing.portalPreviousPriceEur : null);
+      const earlier = existing.portalPreviousPriceEur ?? (pricesSeen(existing.id) <= 1 ? listing.portalPreviousPriceEur : null);
       if (priceChanged || listedAt !== existing.listedAt || earlier !== existing.portalPreviousPriceEur) {
         app.db.transaction((tx) => {
           tx.update(listings)
@@ -647,7 +648,7 @@ export async function listingsRoute(app: FastifyInstance) {
       groundRentEur: listing.groundRentEur,
       monument: listing.monument,
       tenantOccupied: listing.tenantOccupied,
-      ...extras(listing, provided, existing, !existing || observationCount(existing.id) <= 1),
+      ...extras(listing, provided, existing, !existing || pricesSeen(existing.id) <= 1),
       ...brw,
       notes: existing?.notes ?? "",
       status: existing?.status ?? "open",
