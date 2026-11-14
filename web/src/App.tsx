@@ -4,6 +4,7 @@ import {
   loadAssumptions,
   loadListing,
   loadListings,
+  loadSession,
   rememberToken,
   removeListing,
   saveAssumptions,
@@ -33,9 +34,12 @@ function PriceMove({ row }: { row: DeskListing }) {
 type OfferFilter = "all" | "buy" | "rent";
 type Mode = "detail" | "compare" | "assumptions" | "map";
 
+type Session = "checking" | "token" | "proxy";
+
 export function App() {
   const [token, setToken] = useState(storedToken);
   const [authed, setAuthed] = useState(Boolean(storedToken()));
+  const [session, setSession] = useState<Session>("checking");
   const [rows, setRows] = useState<DeskListing[]>([]);
   const [assumptions, setAssumptions] = useState<Assumptions | null>(null);
   const [states, setStates] = useState<StateOption[]>([]);
@@ -60,12 +64,47 @@ export function App() {
   }
 
   useEffect(() => {
-    if (!authed || !token) return;
     let cancelled = false;
-    void refresh(token).catch((reason: unknown) => {
+    void loadSession()
+      .then((next) => {
+        if (cancelled) return;
+        if (next.mode === "proxy") {
+          // Don't send a stored token: Authorization would skip the identity header.
+          setToken("");
+          setSession("proxy");
+          setAuthed(true);
+          return;
+        }
+        setSession("token");
+        setAuthed(Boolean(storedToken()));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSession("token");
+        setAuthed(Boolean(storedToken()));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (session === "checking") return;
+    if (session === "token" && (!authed || !token)) return;
+    let cancelled = false;
+    void refresh(session === "proxy" ? "" : token).catch((reason: unknown) => {
       if (cancelled) return;
       if (reason instanceof ApiError && (reason.status === 401 || reason.status === 503)) {
+        if (session === "proxy") {
+          setError(
+            reason.status === 401
+              ? "The session expired. Reload the page to sign in again."
+              : reason.message,
+          );
+          return;
+        }
         rememberToken("");
+        setToken("");
         setAuthed(false);
         setError(reason.message);
         return;
@@ -75,7 +114,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authed, token]);
+  }, [session, authed, token]);
 
   const visible = useMemo(() => {
     return rows
@@ -138,6 +177,15 @@ export function App() {
     setRows((current) => current.map((row) => (row.id === id ? updated : row)));
   }
 
+  if (session === "checking") {
+    return (
+      <main className="gate">
+        <p className="mark">DuomoGrid</p>
+        <p className="lede">Opening the desk…</p>
+      </main>
+    );
+  }
+
   if (!authed) {
     return (
       <main className="gate">
@@ -174,16 +222,18 @@ export function App() {
       <aside className="rail">
         <div className="brand">
           <h1 className="mark">DuomoGrid</h1>
-          <button
-            type="button"
-            onClick={() => {
-              rememberToken("");
-              setToken("");
-              setAuthed(false);
-            }}
-          >
-            Lock
-          </button>
+          {session === "token" ? (
+            <button
+              type="button"
+              onClick={() => {
+                rememberToken("");
+                setToken("");
+                setAuthed(false);
+              }}
+            >
+              Lock
+            </button>
+          ) : null}
         </div>
         <div className="filters" role="group" aria-label="Offer">
           {(["all", "buy", "rent"] as const).map((item) => (

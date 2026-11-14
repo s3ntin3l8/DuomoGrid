@@ -3,7 +3,7 @@ import path from "node:path";
 import Fastify from "fastify";
 import sensible from "@fastify/sensible";
 import fastifyStatic from "@fastify/static";
-import { envPlugin, parseTrustProxy } from "./plugins/env.js";
+import { envPlugin, parseTrustProxy, proxyAddressList } from "./plugins/env.js";
 import { loggingPlugin } from "./plugins/logging.js";
 import { securityPlugin } from "./plugins/security.js";
 import { dbPlugin } from "./plugins/db.js";
@@ -12,16 +12,21 @@ import { healthRoute } from "./routes/health.js";
 import { usersRoute } from "./routes/users.js";
 import { listingsRoute } from "./routes/listings.js";
 import { assumptionsRoute } from "./routes/assumptions.js";
+import { authRoute } from "./routes/auth.js";
 
 export async function buildApp() {
+  // Fastify fixes trustProxy at construction, before the env plugin runs, so it
+  // is read from process.env like LOG_LEVEL. Set it in the container environment.
+  // The same value is decorated for the guard: identity-header auth must not
+  // re-parse the env and disagree with what Fastify actually trusted.
+  const trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL || "info",
     },
-    // Fastify fixes this at construction, before the env plugin runs, so it is
-    // read from process.env like LOG_LEVEL. Set it in the container environment.
-    trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
+    trustProxy,
   });
+  app.decorate("proxyAddresses", proxyAddressList(trustProxy));
 
   await app.register(envPlugin);
   await app.register(loggingPlugin);
@@ -49,6 +54,7 @@ export async function buildApp() {
   await app.register(usersRoute);
   await app.register(listingsRoute);
   await app.register(assumptionsRoute);
+  await app.register(authRoute);
 
   return app;
 }
