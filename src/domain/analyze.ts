@@ -296,10 +296,11 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
         initialRepaymentPercent = ((yearly - interest) / loanEur) * 100;
       } else initialRepaymentPercent = 0;
       if (loanEur > 0) {
-        fixedYears = assumptions.fixedYears;
-        const owed = remainingBalance(loanEur, assumptions.interestPercent, assumptions.termYears, assumptions.fixedYears);
+        // A period longer than the term is the whole term. The balance follows the rounded payment shown as the loan.
+        fixedYears = Math.min(assumptions.fixedYears, assumptions.termYears);
+        const owed = remainingBalance(loanEur, assumptions.interestPercent, assumptions.termYears, fixedYears, monthlyDebt);
         remainingDebtEur = roundEuro(owed);
-        const yearsLeft = assumptions.termYears - assumptions.fixedYears;
+        const yearsLeft = assumptions.termYears - fixedYears;
         if (owed > 0 && yearsLeft > 0) {
           refinanceMonthlyPlus1Eur = roundEuro(annuityMonthly(owed, assumptions.interestPercent + 1, yearsLeft));
           refinanceMonthlyPlus2Eur = roundEuro(annuityMonthly(owed, assumptions.interestPercent + 2, yearsLeft));

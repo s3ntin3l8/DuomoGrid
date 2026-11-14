@@ -99,17 +99,21 @@ export function roundEuro(value: number): number {
   return Math.round(value);
 }
 
-/** What is still owed after `afterYears` of an annuity loan. Zero once the whole term has passed. */
-export function remainingBalance(loan: number, annualPercent: number, years: number, afterYears: number): number {
+/**
+ * What is still owed after `afterYears` of an annuity loan. Zero once the whole term has passed.
+ * `payment` defaults to the exact annuity. Pass the payment actually made, such as the rounded one the desk shows, so
+ * the balance agrees with it.
+ */
+export function remainingBalance(loan: number, annualPercent: number, years: number, afterYears: number, payment?: number): number {
   if (loan <= 0) return 0;
   const months = Math.round(years * 12);
   const paid = Math.min(months, Math.max(0, Math.round(afterYears * 12)));
   if (months <= 0 || paid >= months) return 0;
   const monthlyRate = annualPercent / 100 / 12;
-  const payment = annuityMonthly(loan, annualPercent, years);
-  if (monthlyRate === 0) return Math.max(0, loan - payment * paid);
+  const paying = payment ?? annuityMonthly(loan, annualPercent, years);
+  if (monthlyRate === 0) return Math.max(0, loan - paying * paid);
   const growth = (1 + monthlyRate) ** paid;
-  return Math.max(0, loan * growth - (payment * (growth - 1)) / monthlyRate);
+  return Math.max(0, loan * growth - (paying * (growth - 1)) / monthlyRate);
 }
 
 export function annuityMonthly(loan: number, annualPercent: number, years: number): number {

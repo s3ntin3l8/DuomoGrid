@@ -128,7 +128,7 @@ export function Detail({
               <Line label="Equity" value={eur(analysis.equityEur)} />
               <Line label="Loan" value={eur(analysis.loanEur)} />
               {analysis.remainingDebtEur != null ? (
-                <Line label={`Still owed after ${num(analysis.fixedYears ?? 0)} years`} value={eur(analysis.remainingDebtEur)} />
+                <Line label={`Still owed after ${num(analysis.fixedYears, Number.isInteger(analysis.fixedYears) ? 0 : 1)} years`} value={eur(analysis.remainingDebtEur)} />
               ) : null}
               {analysis.refinanceMonthlyPlus1Eur != null ? <Line label="Then, rate +1 point" value={`${eur(analysis.refinanceMonthlyPlus1Eur)} / month`} /> : null}
               {analysis.refinanceMonthlyPlus2Eur != null ? <Line label="Then, rate +2 points" value={`${eur(analysis.refinanceMonthlyPlus2Eur)} / month`} /> : null}

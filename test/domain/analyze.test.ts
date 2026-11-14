@@ -544,8 +544,8 @@ describe("fixed-rate period", () => {
     const payment = result.monthlyDebt ?? 0;
     for (let month = 0; month < 120; month += 1) balance = balance * (1 + rate) - payment;
     expect(result.fixedYears).toBe(10);
-    // monthlyDebt is rounded to whole euros, so the walk can differ from the exact balance by a little.
-    expect(Math.abs((result.remainingDebtEur ?? 0) - balance)).toBeLessThan(300);
+    // The balance follows the same rounded payment the desk shows as the loan, so the walk agrees to the euro.
+    expect(Math.abs((result.remainingDebtEur ?? 0) - balance)).toBeLessThan(1);
     const owed = result.remainingDebtEur ?? 0;
     const again = (extra: number) => {
       const r = (assumptions.interestPercent + extra) / 100 / 12;
@@ -564,9 +564,10 @@ describe("fixed-rate period", () => {
     expect(short.remainingDebtEur ?? 0).toBeGreaterThan(long.remainingDebtEur ?? 0);
   });
 
-  it("is zero debt and no refinancing when the period covers the whole term", () => {
+  it("is zero debt and no refinancing when the period covers the whole term, and never reports a period longer than the term", () => {
     for (const fixedYears of [30, 40]) {
       const result = analyze(buy, { ...assumptions, fixedYears });
+      expect(result.fixedYears).toBe(30);
       expect(result.remainingDebtEur).toBe(0);
       expect(result.refinanceMonthlyPlus1Eur).toBeNull();
       expect(result.refinanceMonthlyPlus2Eur).toBeNull();

@@ -27,13 +27,15 @@ export function normalizeAssumptions(input: unknown): Assumptions {
   const body = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   const state = typeof body.defaultState === "string" ? body.defaultState.toUpperCase() : "";
   const defaultState = STATES.some((item) => item.id === state) ? (state as StateId) : null;
+  const termYears = numberOr(body.termYears, DEFAULT_ASSUMPTIONS.termYears);
   return {
     equityMode: body.equityMode === "eur" ? "eur" : "percent",
     equityPercent: numberOr(body.equityPercent, DEFAULT_ASSUMPTIONS.equityPercent),
     equityEur: numberOr(body.equityEur, DEFAULT_ASSUMPTIONS.equityEur),
     interestPercent: numberOr(body.interestPercent, DEFAULT_ASSUMPTIONS.interestPercent),
-    termYears: numberOr(body.termYears, DEFAULT_ASSUMPTIONS.termYears),
-    fixedYears: positive(body.fixedYears, DEFAULT_ASSUMPTIONS.fixedYears),
+    termYears,
+    // A fixed-rate period longer than the loan is the whole loan.
+    fixedYears: Math.min(positive(body.fixedYears, DEFAULT_ASSUMPTIONS.fixedYears), termYears),
     notaryPercent: numberOr(body.notaryPercent, DEFAULT_ASSUMPTIONS.notaryPercent),
     registerPercent: numberOr(body.registerPercent, DEFAULT_ASSUMPTIONS.registerPercent),
     fallbackCommissionPercent: numberOr(body.fallbackCommissionPercent, DEFAULT_ASSUMPTIONS.fallbackCommissionPercent),
