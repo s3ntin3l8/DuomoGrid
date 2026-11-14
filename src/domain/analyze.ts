@@ -41,7 +41,9 @@ export type Analysis = {
   monthlyGroundRent: number | null;
   /** House or multi-family house you buy, from living area and building age. Null for anything else, when the area is unknown, and when the exposé states a Hausgeld, which already covers it. */
   monthlyMaintenance: number | null;
+  /** Grundsteuer. Set for every bought house or multi-family house, also with a stated Hausgeld, which never contains it. */
   monthlyPropertyTax: number | null;
+  /** Same rule as maintenance: null without a living area and when a stated Hausgeld covers it. */
   monthlyInsurance: number | null;
   monthlyTotal: number | null;
   monthlyPartial: number | null;
@@ -381,7 +383,7 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
     }
   }
   if (assumptions.monthlyBudgetEur && monthlyTotal != null && monthlyTotal > assumptions.monthlyBudgetEur) {
-    flags.push({ severity: "warn", title: "Above the monthly budget", detail: "Loan, condo fee, heating, ground rent, and for a house its upkeep, property tax and insurance together sit above the budget you set." });
+    flags.push({ severity: "warn", title: "Above the monthly budget", detail: "Loan, condo fee, heating, ground rent and, for a house, the upkeep, property tax and insurance it carries together sit above the budget you set." });
   }
   if (listing.yearBuilt != null && listing.yearBuilt >= 2020) {
     flags.push({ severity: "good", title: "New build", detail: "Warranty and energy use are usually easier. Still read the condo fee and the maintenance reserve." });
