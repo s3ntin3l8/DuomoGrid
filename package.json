@@ -1,6 +1,6 @@
 {
   "name": "duomo-grid",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Self-hosted desk for buy and rent listings you choose to save.",
   "main": "dist/server.js",

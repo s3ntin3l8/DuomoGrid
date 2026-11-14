@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.1.5](https://github.com/s3ntin3l8/DuomoGrid/compare/v0.1.4...v0.1.5) (2026-11-14)
+
+
+### Features
+
+* add the desk for saved listings ([aea4c91](https://github.com/s3ntin3l8/DuomoGrid/commit/aea4c916c8787ac748e78106a34ca649c47719ab))
+* attach the extension zip to a release ([#19](https://github.com/s3ntin3l8/DuomoGrid/issues/19)) ([d6f1acc](https://github.com/s3ntin3l8/DuomoGrid/commit/d6f1acc67b14ef7d0d405faf3649e058aab94dde))
+* correct a saved listing and remove it ([#20](https://github.com/s3ntin3l8/DuomoGrid/issues/20)) ([4a2225d](https://github.com/s3ntin3l8/DuomoGrid/commit/4a2225d5b9725d719b1ed81d5aac371d4b429cee))
+* flag asking price against the land value and the district sale band ([#17](https://github.com/s3ntin3l8/DuomoGrid/issues/17)) ([b788ff6](https://github.com/s3ntin3l8/DuomoGrid/commit/b788ff65ee04a1ddcf3f8f8bd167973ecab91617))
+* look up the Bavarian Bodenrichtwert for a saved point ([#15](https://github.com/s3ntin3l8/DuomoGrid/issues/15)) ([54591e9](https://github.com/s3ntin3l8/DuomoGrid/commit/54591e97c7235709baecddbf832903dfc9e18f04))
+* price history with reductions and time on market ([#32](https://github.com/s3ntin3l8/DuomoGrid/issues/32)) ([4752429](https://github.com/s3ntin3l8/DuomoGrid/commit/47524295d217124e87f0885428d3c97d401a7bf5))
+* **score:** energy source, parking and heating age in the buy score ([#33](https://github.com/s3ntin3l8/DuomoGrid/issues/33)) ([61e3e7e](https://github.com/s3ntin3l8/DuomoGrid/commit/61e3e7ea2b455b50b24f9d96cf9ace8b47670f59))
+* show photos and floor plans ([#31](https://github.com/s3ntin3l8/DuomoGrid/issues/31)) ([2df7610](https://github.com/s3ntin3l8/DuomoGrid/commit/2df7610f88a13caa1625b43ab6986970496a8e0c))
+* show price per m² and the last price move on the list ([#21](https://github.com/s3ntin3l8/DuomoGrid/issues/21)) ([9a5b835](https://github.com/s3ntin3l8/DuomoGrid/commit/9a5b835eb39ff45f5133ac365206f54b3d52575b))
+* show saved listings on a map ([#13](https://github.com/s3ntin3l8/DuomoGrid/issues/13)) ([c067f8c](https://github.com/s3ntin3l8/DuomoGrid/commit/c067f8ce3a513e25dc90ad3f6235a374dfe9aa42))
+* show the district sale band for a saved listing ([#16](https://github.com/s3ntin3l8/DuomoGrid/issues/16)) ([7b01b07](https://github.com/s3ntin3l8/DuomoGrid/commit/7b01b0748d5bc81321bd41a57deeae813bb9df39))
+* store buy and rent listings and score them on the server ([b974db9](https://github.com/s3ntin3l8/DuomoGrid/commit/b974db97075f90882191fbbde2c6d7201e0b32bb))
+* store the description and listing details ([#25](https://github.com/s3ntin3l8/DuomoGrid/issues/25)) ([7a09255](https://github.com/s3ntin3l8/DuomoGrid/commit/7a092553e9baa50805151fdfd725024eee293627))
+* store the exposé point when the page has one ([#10](https://github.com/s3ntin3l8/DuomoGrid/issues/10)) ([68fee1e](https://github.com/s3ntin3l8/DuomoGrid/commit/68fee1ebc99acbb8134e8ead9007d0e3e322d33b))
+
+
+### Bug Fixes
+
+* install with npm ci in the session-start hook ([#4](https://github.com/s3ntin3l8/DuomoGrid/issues/4)) ([36d0164](https://github.com/s3ntin3l8/DuomoGrid/commit/36d01648474bb0e06d9563b06cef626e0f6a1d3f))
+* read the current ImmoScout24 and Immowelt exposé layouts ([#24](https://github.com/s3ntin3l8/DuomoGrid/issues/24)) ([a584c94](https://github.com/s3ntin3l8/DuomoGrid/commit/a584c948424b15f81eb3190aaa107134efc5f235))
+* trust the reverse proxy for client IPs; ci: validate compose files ([#18](https://github.com/s3ntin3l8/DuomoGrid/issues/18)) ([1a7344a](https://github.com/s3ntin3l8/DuomoGrid/commit/1a7344a53be15534ef36f63605bef80f956806b7))
+
 ## [0.1.4](https://github.com/s3ntin3l8/node-backend-template/compare/v0.1.3...v0.1.4) (2026-11-10)
 
 
