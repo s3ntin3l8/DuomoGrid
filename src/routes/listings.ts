@@ -4,6 +4,7 @@ import { installIngestGuard } from "../auth/guard.js";
 import { normalizeAssumptions } from "../domain/assumptions.js";
 import { analyze } from "../domain/analyze.js";
 import { cohortSummary, rentAgainstBuy, type CohortRow } from "../domain/compare.js";
+import { maxOffer } from "../domain/max-offer.js";
 import { describeFindings, type DescriptionFindings } from "../domain/describe.js";
 import { priceHistoryOf } from "../domain/history.js";
 import { exactPoint, parseIngest, type ExtraKey } from "../domain/ingest.js";
@@ -367,13 +368,14 @@ export async function listingsRoute(app: FastifyInstance) {
       now: new Date(),
     });
     const bodenrichtwert = bodenrichtwertView(row);
-    const analysis = analyze(analysed, model, {
+    const market = {
       bodenrichtwert: asBodenrichtwert(bodenrichtwert),
       districtSaleBand,
       findings: findings.items,
       heatingReplacedYear: findings.heatingReplacedYear,
       history: priceHistory,
-    });
+    };
+    const analysis = analyze(analysed, model, market);
     const everyone = app.db
       .select()
       .from(listings)
@@ -390,6 +392,8 @@ export async function listingsRoute(app: FastifyInstance) {
       coverUrl: input.images.find((image) => image.kind === "photo")?.url ?? null,
       descriptionFindings: full ? findings : null,
       analysis,
+      // Dozens of analyses per listing, so only the detail route pays for it. The list sends null.
+      maxOffer: full ? maxOffer(analysed, model, market) : null,
       observations: full ? allObservations : allObservations.slice(0, 12),
       priceHistory,
       cohort: cohortSummary(subject, everyone),

@@ -1341,3 +1341,31 @@ describe("listings", () => {
     await app.close();
   });
 });
+
+describe("listings maximum offer", () => {
+  afterEach(() => {
+    delete process.env.INGEST_TOKEN;
+  });
+
+  it("is solved on the detail and left out of the list", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const created = await app.inject({
+      method: "POST",
+      url: "/listings",
+      headers,
+      payload: { title: "Flat", priceEur: 300000, livingAreaM2: 80, city: "Darmstadt", postalCode: "64283", state: "HE", propertyType: "apartment", hausgeldEur: 300, energyClass: "C", listingKind: "sale" },
+    });
+    expect(created.statusCode).toBe(201);
+    const saved = await app.inject({ method: "PUT", url: "/assumptions", headers, payload: { monthlyBudgetEur: 1800, targetEurPerM2: 3750 } });
+    expect(saved.statusCode).toBe(200);
+    const detail = (await app.inject({ method: "GET", url: `/listings/${created.json().id}`, headers })).json();
+    expect(detail.maxOffer.scoreTarget).toBe(65);
+    expect(detail.maxOffer.budgetPriceEur).toBeGreaterThan(0);
+    expect(detail.maxOffer.scorePriceEur).toBeGreaterThan(0);
+    const listed = (await app.inject({ method: "GET", url: "/listings", headers })).json();
+    expect(listed[0].maxOffer).toBeNull();
+    await app.close();
+  });
+});
