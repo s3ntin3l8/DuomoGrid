@@ -1369,3 +1369,49 @@ describe("listings maximum offer", () => {
     await app.close();
   });
 });
+
+describe("listings rent comparison", () => {
+  afterEach(() => {
+    delete process.env.INGEST_TOKEN;
+  });
+
+  it("compares a purchase with the saved rentals of a similar size, and says nothing when the cost of owning is incomplete", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    const post = async (payload: Record<string, unknown>) => {
+      const response = await app.inject({ method: "POST", url: "/listings", headers, payload: { city: "Darmstadt", postalCode: "64283", state: "HE", propertyType: "apartment", ...payload } });
+      expect(response.statusCode).toBe(201);
+      return response.json().id as string;
+    };
+    const flat = await post({ sourceUrl: "https://example.test/buy-1", externalId: "buy-1", title: "Flat", priceEur: 300000, livingAreaM2: 80, hausgeldEur: 300, energyClass: "C", listingKind: "sale" });
+    const noFee = await post({ sourceUrl: "https://example.test/buy-2", externalId: "buy-2", title: "Flat without a fee", priceEur: 300000, livingAreaM2: 80, energyClass: "C", listingKind: "sale" });
+    await post({ sourceUrl: "https://example.test/rent-1", externalId: "rent-1", title: "Similar rental", offer: "rent", priceEur: 1200, livingAreaM2: 75 });
+    await post({ sourceUrl: "https://example.test/rent-2", externalId: "rent-2", title: "Studio", offer: "rent", priceEur: 500, livingAreaM2: 30 });
+
+    const detail = (await app.inject({ method: "GET", url: `/listings/${flat}`, headers })).json();
+    // The studio is not a similar size, so only one rental counts.
+    expect(detail.rentComparison.rentCount).toBe(1);
+    expect(detail.rentComparison.medianColdRentEur).toBe(1200);
+    const horizon = detail.rentComparison.horizon;
+    expect(horizon.horizonYears).toBe(10);
+    expect(horizon.averageRentMonthlyEur).toBeGreaterThan(1200);
+    expect(horizon.netWealthBuyEur - horizon.netWealthRentEur).toBe(horizon.buyAdvantageEur);
+    // The purchase is built from the analysis: 300000 plus costs, 20 percent equity. The remaining debt after 10 of 30 years is below the loan.
+    expect(horizon.remainingDebtEur).toBeLessThan(detail.analysis.loanEur);
+    expect(horizon.remainingDebtEur).toBeGreaterThan(0);
+    expect(detail.analysis.monthlyRunning).toBe(300);
+    expect(detail.rentComparison).not.toHaveProperty("carryingMinusMedianCold");
+
+    // An apartment with no stated condo fee has an unknown cost of owning, so there is a rent sample but no horizon.
+    const incomplete = (await app.inject({ method: "GET", url: `/listings/${noFee}`, headers })).json();
+    expect(incomplete.analysis.monthlyRunning).toBeNull();
+    expect(incomplete.rentComparison.rentCount).toBe(1);
+    expect(incomplete.rentComparison.horizon).toBeNull();
+
+    // A rental has no comparison.
+    const rentals = (await app.inject({ method: "GET", url: "/listings", headers })).json() as { listing: { offer: string }; rentComparison: unknown }[];
+    expect(rentals.filter((row) => row.listing.offer === "rent").every((row) => row.rentComparison === null)).toBe(true);
+    await app.close();
+  });
+});

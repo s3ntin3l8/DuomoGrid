@@ -1,5 +1,6 @@
 import { fold } from "./reference.js";
-import type { Offer } from "./types.js";
+import { rentVsBuy } from "./rent-vs-buy.js";
+import type { Assumptions, Offer } from "./types.js";
 
 export type CohortRow = {
   offer: Offer;
@@ -24,15 +25,20 @@ function perM2(row: CohortRow): number | null {
   return money / row.livingAreaM2;
 }
 
-function similar(subject: CohortRow, other: CohortRow): boolean {
-  if (other.offer !== subject.offer) return false;
-  if (fold(other.city) !== fold(subject.city) || !fold(subject.city)) return false;
-  if (other.propertyType !== subject.propertyType) return false;
+/** Within 0.7 to 1.3 times the living area. An unknown area on either side does not rule a row out. */
+function similarArea(subject: CohortRow, other: CohortRow): boolean {
   if (subject.livingAreaM2 != null && other.livingAreaM2 != null && subject.livingAreaM2 > 0) {
     const ratio = other.livingAreaM2 / subject.livingAreaM2;
     if (ratio < 0.7 || ratio > 1.3) return false;
   }
   return true;
+}
+
+function similar(subject: CohortRow, other: CohortRow): boolean {
+  if (other.offer !== subject.offer) return false;
+  if (fold(other.city) !== fold(subject.city) || !fold(subject.city)) return false;
+  if (other.propertyType !== subject.propertyType) return false;
+  return similarArea(subject, other);
 }
 
 export function cohortSummary(subject: CohortRow, rows: CohortRow[]) {
@@ -43,15 +49,32 @@ export function cohortSummary(subject: CohortRow, rows: CohortRow[]) {
   return { count: values.length, medianEurPerM2, deltaPct };
 }
 
-export function rentAgainstBuy(subject: CohortRow & { monthlyCarryingEur: number | null }, rows: CohortRow[]) {
+/** What the buyer pays and owes on day one, read from the analysis. Null when any of it is unknown. */
+export type PurchaseSnapshot = {
+  purchasePriceEur: number;
+  closingCostsEur: number;
+  equityPaidEur: number;
+  loanEur: number;
+  runningMonthlyEur: number;
+};
+
+export function rentAgainstBuy(subject: CohortRow & { purchase: PurchaseSnapshot | null }, rows: CohortRow[], assumptions: Assumptions) {
   if (subject.offer !== "buy") return null;
-  const rents = rows.filter((row) => row.offer === "rent" && fold(row.city) === fold(subject.city) && row.propertyType === subject.propertyType);
+  const rents = rows.filter((row) => row.offer === "rent" && fold(row.city) === fold(subject.city) && row.propertyType === subject.propertyType && similarArea(subject, row));
   const cold = rents.map((row) => row.coldRentEur).filter((value): value is number => value != null && value > 0);
   const medianColdRentEur = median(cold);
-  return {
-    rentCount: cold.length,
-    medianColdRentEur,
-    monthlyCarryingEur: subject.monthlyCarryingEur,
-    carryingMinusMedianCold: subject.monthlyCarryingEur != null && medianColdRentEur != null ? subject.monthlyCarryingEur - medianColdRentEur : null,
-  };
+  const horizon =
+    subject.purchase != null && medianColdRentEur != null
+      ? rentVsBuy({
+          ...subject.purchase,
+          interestPercent: assumptions.interestPercent,
+          termYears: assumptions.termYears,
+          coldRentEur: medianColdRentEur,
+          horizonYears: assumptions.horizonYears,
+          equityReturnPercent: assumptions.equityReturnPercent,
+          appreciationPercent: assumptions.appreciationPercent,
+          rentGrowthPercent: assumptions.rentGrowthPercent,
+        })
+      : null;
+  return { rentCount: cold.length, medianColdRentEur, horizon };
 }

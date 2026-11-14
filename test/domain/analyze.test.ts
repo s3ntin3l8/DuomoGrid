@@ -581,3 +581,30 @@ describe("fixed-rate period", () => {
     expect(empty(analyze({ ...buy, offer: "rent", priceEur: 1200 }, assumptions))).toEqual([null, null, null, null]);
   });
 });
+
+describe("what owning costs apart from the loan and the heating", () => {
+  const base = listing({ title: "Home", offer: "buy", priceEur: 350000, livingAreaM2: 140, propertyType: "house", city: "Darmstadt", postalCode: "64283", state: "HE", yearBuilt: 1990, energyClass: "C" });
+  const context = { nowYear: 2026 };
+
+  it("is the upkeep, property tax and insurance of a house, and leaves out the loan and the heating", () => {
+    const result = analyze(base, assumptions, context);
+    expect(result.monthlyRunning).toBe(163 + 38 + 29);
+    expect(result.monthlyTotal).toBe((result.monthlyDebt ?? 0) + (result.monthlyHeating ?? 0) + 230);
+  });
+
+  it("is the Hausgeld of a flat, plus the ground rent of a leasehold, plus property tax for a house that states one", () => {
+    expect(analyze({ ...base, propertyType: "apartment", condoFeeEur: 300 }, assumptions, context).monthlyRunning).toBe(300);
+    expect(analyze({ ...base, propertyType: "apartment", condoFeeEur: 300, leasehold: true, groundRentEur: 90 }, assumptions, context).monthlyRunning).toBe(390);
+    expect(analyze({ ...base, condoFeeEur: 250 }, assumptions, context).monthlyRunning).toBe(250 + 38);
+  });
+
+  it("is null when a part is unknown, and for a rental", () => {
+    expect(analyze({ ...base, propertyType: "apartment", condoFeeEur: null }, assumptions, context).monthlyRunning).toBeNull();
+    expect(analyze({ ...base, livingAreaM2: null }, assumptions, context).monthlyRunning).toBeNull();
+    // A leasehold without a stated ground rent counts as 0 in the monthly total, but must not hide a cost here.
+    const unknownRent = analyze({ ...base, propertyType: "apartment", condoFeeEur: 300, leasehold: true, groundRentEur: null }, assumptions, context);
+    expect(unknownRent.monthlyRunning).toBeNull();
+    expect(unknownRent.monthlyTotal).not.toBeNull();
+    expect(analyze({ ...base, offer: "rent", priceEur: 1500 }, assumptions, context).monthlyRunning).toBeNull();
+  });
+});

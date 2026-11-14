@@ -124,6 +124,14 @@ export type Assumptions = {
   propertyTaxEurYear: number;
   /** Building insurance for a house you own, per m2 of living area and year. */
   insuranceEurPerM2Year: number;
+  /** How long you would own the home when buying is compared with renting. */
+  horizonYears: number;
+  /** What money kept out of the home would earn per year. Also the opportunity cost of the equity. */
+  equityReturnPercent: number;
+  /** How much the home's price is assumed to change per year. */
+  appreciationPercent: number;
+  /** How much the rent is assumed to rise per year. */
+  rentGrowthPercent: number;
   monthlyBudgetEur: number | null;
   targetEurPerM2: number | null;
   defaultState: StateId | null;
@@ -142,6 +150,10 @@ export const DEFAULT_ASSUMPTIONS: Assumptions = {
   maintenanceEurPerM2Year: 10,
   propertyTaxEurYear: 450,
   insuranceEurPerM2Year: 2.5,
+  horizonYears: 10,
+  equityReturnPercent: 3,
+  appreciationPercent: 1.5,
+  rentGrowthPercent: 2,
   monthlyBudgetEur: null,
   targetEurPerM2: null,
   defaultState: null,

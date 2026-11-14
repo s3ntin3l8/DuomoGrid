@@ -47,6 +47,10 @@ export function AssumptionsForm({
           <Field label="House upkeep, euro per m² and year" value={draft.maintenanceEurPerM2Year} step="0.5" onChange={(value) => value != null && set("maintenanceEurPerM2Year", value)} />
           <Field label="House property tax, euro per year" value={draft.propertyTaxEurYear} step="10" onChange={(value) => value != null && set("propertyTaxEurYear", value)} />
           <Field label="House insurance, euro per m² and year" value={draft.insuranceEurPerM2Year} step="0.1" onChange={(value) => value != null && set("insuranceEurPerM2Year", value)} />
+          <Field label="Rent or buy: years you would stay" value={draft.horizonYears} onChange={(value) => value != null && set("horizonYears", value)} />
+          <Field label="Return on money kept out of the home, percent a year" value={draft.equityReturnPercent} step="0.1" onChange={(value) => value != null && set("equityReturnPercent", value)} />
+          <Field label="Home price change, percent a year" value={draft.appreciationPercent} step="0.1" onChange={(value) => value != null && set("appreciationPercent", value)} />
+          <Field label="Rent increase, percent a year" value={draft.rentGrowthPercent} step="0.1" onChange={(value) => value != null && set("rentGrowthPercent", value)} />
           <Field label="Monthly budget, euro" value={draft.monthlyBudgetEur} optional onChange={(value) => set("monthlyBudgetEur", value)} />
           <Field label="Your target, euro per m²" value={draft.targetEurPerM2} optional onChange={(value) => set("targetEurPerM2", value)} />
           <label>
