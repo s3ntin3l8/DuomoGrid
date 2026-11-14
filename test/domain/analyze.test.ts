@@ -390,6 +390,24 @@ describe("analyze with the added exposé data", () => {
     expect(read({ heating: "Nachtspeicher" }).score).toBe(base - 12);
   });
 
+  it("reads German electric heating as electric, and shows no heating flag on a rental", () => {
+    for (const heating of ["Elektroheizung", "Infrarotheizung", "Direktheizung", "Strom"]) {
+      expect(analyze(listing({ ...home, heating }), assumptions).heatingEuroPerKwh).toBe(0.32);
+    }
+    const rentBase = { ...home, offer: "rent" as const, priceEur: 1450, coldRentEur: 1450 };
+    for (const heating of ["Ölheizung", "Gas-Zentralheizung", "Nachtspeicher"]) {
+      const flags = titles(analyze(listing({ ...rentBase, heating }), assumptions));
+      expect(flags).not.toContain("Oil or night-storage heating");
+      expect(flags).not.toContain("Fossil heating may need replacing");
+    }
+    expect(titles(analyze(listing({ ...home, heating: "Ölheizung" }), assumptions))).toContain("Oil or night-storage heating");
+  });
+
+  it("names every fee the parking raises", () => {
+    const detail = analyze(listing({ ...home, parkingPriceEur: 10000, parkingSpaces: 2 }), assumptions).flags.find((flag) => flag.title === "Parking is priced separately")?.detail;
+    expect(detail).toContain("transfer tax, notary, land register and commission");
+  });
+
   it("flags gas as fossil heating once, and leaves oil to its own flag", () => {
     expect(titles(analyze(listing({ ...home, energySource: "Gas" }), assumptions))).toContain("Fossil heating may need replacing");
     const oil = titles(analyze(listing({ ...home, energySource: "Öl" }), assumptions));

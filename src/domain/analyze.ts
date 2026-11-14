@@ -95,7 +95,7 @@ function fuelOf(listing: ListingInput): Fuel | null {
   if (!text.trim()) return null;
   if (/w(ä|ae|a)rmepumpe|heat.?pump|erdw|geotherm/.test(text)) return "heatpump";
   if (/nacht|night|storage heater/.test(text)) return "storage";
-  if (/strom|electric/.test(text)) return "electric";
+  if (/strom|electric|elektro|infrarot|direktheiz/.test(text)) return "electric";
   if (/fern|district/.test(text)) return "district";
   // "Ölheizung" and "Öl-Zentralheizung" are compounds, so Öl only has to start a word. "boiler" is not oil.
   if (/(^|[^a-zäöü])(öl|oel)|(^|[^a-z])oil([^a-z]|$)|heiz(ö|oe)l/.test(text)) return "oil";
@@ -306,7 +306,8 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   }
   const oilOrStorage = fuel === "oil" || fuel === "storage";
   const gas = fuel === "gas";
-  if (oilOrStorage) {
+  // Both heating flags are about what a buyer will have to replace, so neither is shown on a rental.
+  if (buy && oilOrStorage) {
     flags.push({ severity: "warn", title: "Oil or night-storage heating", detail: "Oil or night-storage heat often means a replacement within a few years. That belongs in the negotiation." });
   }
   if (buy && gas) {
@@ -373,7 +374,7 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
     flags.push({
       severity: "info",
       title: "Parking is priced separately",
-      detail: `${parkingSpaces} ${parkingSpaces === 1 ? "space" : "spaces"} at ${figure(parkingUnitEur)} EUR, ${figure(parkingEur)} EUR in all. ${count}${reading}It is added to the amount that transfer tax, notary and land register are charged on, and to the cash needed. If you do not want the space, ask whether it can be left out.`,
+      detail: `${parkingSpaces} ${parkingSpaces === 1 ? "space" : "spaces"} at ${figure(parkingUnitEur)} EUR, ${figure(parkingEur)} EUR in all. ${count}${reading}It is added to the amount that transfer tax, notary, land register and commission are charged on, and to the cash needed. If you do not want the space, ask whether it can be left out.`,
     });
   }
   const history = market.history;

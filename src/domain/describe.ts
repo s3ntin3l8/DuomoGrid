@@ -78,7 +78,8 @@ function germanAmount(raw: string): number | null {
 
 /**
  * Reads the long description for facts that are worth a second look. A sentence that says no, or only that something
- * is possible or planned, never produces a finding. Nothing here is a score input.
+ * is possible or planned, never produces a finding. Findings are shown. Two values reach the analysis: the renovation
+ * year, which only fills a missing yearRefurbished, and the heating renewal year, which feeds the energy subscore.
  */
 export function describeFindings(description: ListingDescription | null, now = new Date().getUTCFullYear()): DescriptionFindings {
   const empty: DescriptionFindings = { items: [], renovatedYear: null, heatingReplacedYear: null };
