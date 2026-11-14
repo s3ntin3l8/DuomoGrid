@@ -92,6 +92,11 @@ describe("rentVsBuy", () => {
     expect(longer?.netWealthRentEur ?? -1).toBeGreaterThan(0);
   });
 
+  it("reports the horizon it simulated", () => {
+    expect(rentVsBuy({ ...flat, horizonYears: 2.51 })?.horizonYears).toBe(2.5);
+    expect(rentVsBuy({ ...flat, horizonYears: 10 })?.horizonYears).toBe(10);
+  });
+
   it("counts months, not the stated years, for the home's value", () => {
     // 2.51 years is 30 months.
     expect(rentVsBuy({ ...flat, appreciationPercent: 2, horizonYears: 2.51 })?.homeValueEur).toBe(Math.round(200000 * 1.02 ** 2.5));
@@ -103,6 +108,7 @@ describe("rentVsBuy", () => {
     expect(rentVsBuy({ ...flat, rentGrowthPercent: -100 })).toBeNull();
     expect(rentVsBuy({ ...flat, equityReturnPercent: 1e9 })).toBeNull();
     expect(rentVsBuy({ ...flat, appreciationPercent: -99 })).not.toBeNull();
+    expect(rentVsBuy({ ...flat, loanEur: 100000, equityPaidEur: 100000, interestPercent: -50 })).toBeNull();
   });
 
   it("does not simulate more than 50 years", () => {
@@ -163,6 +169,12 @@ describe("normalizeAssumptions rent or buy", () => {
     expect([old.horizonYears, old.equityReturnPercent, old.appreciationPercent, old.rentGrowthPercent]).toEqual([10, 3, 1.5, 2]);
     const falling = normalizeAssumptions({ horizonYears: "15", equityReturnPercent: 0, appreciationPercent: -1, rentGrowthPercent: "0" });
     expect([falling.horizonYears, falling.equityReturnPercent, falling.appreciationPercent, falling.rentGrowthPercent]).toEqual([15, 0, -1, 0]);
+  });
+
+  it("keeps a loan rate from going negative", () => {
+    expect(normalizeAssumptions({ interestPercent: -2 }).interestPercent).toBe(DEFAULT_ASSUMPTIONS.interestPercent);
+    expect(normalizeAssumptions({ interestPercent: 0 }).interestPercent).toBe(0);
+    expect(normalizeAssumptions({ interestPercent: "4.25" }).interestPercent).toBe(4.25);
   });
 
   it("caps the horizon at 50 years and refuses rates of -100 percent or less", () => {

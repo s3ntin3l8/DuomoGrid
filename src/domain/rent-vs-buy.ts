@@ -61,6 +61,8 @@ export function rentVsBuy(input: RentVsBuyInput): RentVsBuy | null {
   const rates = [input.equityReturnPercent, input.appreciationPercent, input.rentGrowthPercent];
   // A yearly change of -100 percent or less has no meaning, and an even power would hide it as a finite number. Same bounds as the assumptions.
   if (!rates.every((rate) => rate > -100 && rate <= 1000)) return null;
+  // A negative loan rate would show a negative cost, and the monthly total has the same hole, so it is refused here too.
+  if (input.interestPercent < 0) return null;
   if (input.purchasePriceEur <= 0 || input.coldRentEur <= 0 || input.loanEur < 0 || input.equityPaidEur < 0) return null;
 
   const loanRate = input.interestPercent / 100 / 12;
@@ -93,7 +95,8 @@ export function rentVsBuy(input: RentVsBuyInput): RentVsBuy | null {
   // A rate at or below -100 percent has no meaning and shows up here as NaN or infinity. Say nothing rather than a wrong number.
   if (!figures.every((value) => Number.isFinite(value))) return null;
   return {
-    horizonYears: input.horizonYears,
+    // The simulated months, so the figure shown is the one the maths used.
+    horizonYears: months / 12,
     unrecoverableBuyMonthlyEur: roundEuro(unrecoverable),
     averageRentMonthlyEur: roundEuro(rentPaid / months),
     homeValueEur: roundEuro(homeValue),

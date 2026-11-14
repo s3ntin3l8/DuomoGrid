@@ -38,7 +38,7 @@ export function normalizeAssumptions(input: unknown): Assumptions {
     equityMode: body.equityMode === "eur" ? "eur" : "percent",
     equityPercent: numberOr(body.equityPercent, DEFAULT_ASSUMPTIONS.equityPercent),
     equityEur: numberOr(body.equityEur, DEFAULT_ASSUMPTIONS.equityEur),
-    interestPercent: numberOr(body.interestPercent, DEFAULT_ASSUMPTIONS.interestPercent),
+    interestPercent: nonNegative(body.interestPercent, DEFAULT_ASSUMPTIONS.interestPercent),
     termYears,
     // A fixed-rate period longer than the loan is the whole loan.
     fixedYears: Math.min(positive(body.fixedYears, DEFAULT_ASSUMPTIONS.fixedYears), termYears),
