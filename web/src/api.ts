@@ -7,6 +7,9 @@ export type Assumptions = {
   notaryPercent: number;
   registerPercent: number;
   fallbackCommissionPercent: number;
+  maintenanceEurPerM2Year: number;
+  propertyTaxEurYear: number;
+  insuranceEurPerM2Year: number;
   monthlyBudgetEur: number | null;
   targetEurPerM2: number | null;
   defaultState: string | null;
@@ -113,6 +116,9 @@ export type DeskListing = {
     monthlyHeating: number | null;
     monthlyCondoFee: number | null;
     monthlyGroundRent: number | null;
+    monthlyMaintenance: number | null;
+    monthlyPropertyTax: number | null;
+    monthlyInsurance: number | null;
     monthlyTotal: number | null;
     monthlyPartial: number | null;
     grossYield: number | null;

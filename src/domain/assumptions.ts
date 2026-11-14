@@ -5,6 +5,12 @@ function numberOr(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/** A cost cannot be negative, so a negative figure falls back to the default rather than lowering the monthly total. */
+function nonNegative(value: unknown, fallback: number): number {
+  const parsed = numberOr(value, fallback);
+  return parsed >= 0 ? parsed : fallback;
+}
+
 function numberOrNull(value: unknown): number | null {
   if (value == null || value === "") return null;
   const parsed = typeof value === "number" ? value : Number(value);
@@ -24,6 +30,9 @@ export function normalizeAssumptions(input: unknown): Assumptions {
     notaryPercent: numberOr(body.notaryPercent, DEFAULT_ASSUMPTIONS.notaryPercent),
     registerPercent: numberOr(body.registerPercent, DEFAULT_ASSUMPTIONS.registerPercent),
     fallbackCommissionPercent: numberOr(body.fallbackCommissionPercent, DEFAULT_ASSUMPTIONS.fallbackCommissionPercent),
+    maintenanceEurPerM2Year: nonNegative(body.maintenanceEurPerM2Year, DEFAULT_ASSUMPTIONS.maintenanceEurPerM2Year),
+    propertyTaxEurYear: nonNegative(body.propertyTaxEurYear, DEFAULT_ASSUMPTIONS.propertyTaxEurYear),
+    insuranceEurPerM2Year: nonNegative(body.insuranceEurPerM2Year, DEFAULT_ASSUMPTIONS.insuranceEurPerM2Year),
     monthlyBudgetEur: numberOrNull(body.monthlyBudgetEur),
     targetEurPerM2: numberOrNull(body.targetEurPerM2),
     defaultState,

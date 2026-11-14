@@ -43,6 +43,9 @@ export function AssumptionsForm({
           <Field label="Notary, percent" value={draft.notaryPercent} step="0.01" onChange={(value) => value != null && set("notaryPercent", value)} />
           <Field label="Land register, percent" value={draft.registerPercent} step="0.01" onChange={(value) => value != null && set("registerPercent", value)} />
           <Field label="Buyer commission if missing, percent" value={draft.fallbackCommissionPercent} step="0.01" onChange={(value) => value != null && set("fallbackCommissionPercent", value)} />
+          <Field label="House upkeep, euro per m² and year" value={draft.maintenanceEurPerM2Year} step="0.5" onChange={(value) => value != null && set("maintenanceEurPerM2Year", value)} />
+          <Field label="House property tax, euro per year" value={draft.propertyTaxEurYear} step="10" onChange={(value) => value != null && set("propertyTaxEurYear", value)} />
+          <Field label="House insurance, euro per m² and year" value={draft.insuranceEurPerM2Year} step="0.1" onChange={(value) => value != null && set("insuranceEurPerM2Year", value)} />
           <Field label="Monthly budget, euro" value={draft.monthlyBudgetEur} optional onChange={(value) => set("monthlyBudgetEur", value)} />
           <Field label="Your target, euro per m²" value={draft.targetEurPerM2} optional onChange={(value) => set("targetEurPerM2", value)} />
           <label>

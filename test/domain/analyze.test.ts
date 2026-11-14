@@ -449,3 +449,85 @@ describe("analyze with the added exposé data", () => {
     expect(titles(rent).filter((title) => ["Price has been reduced", "Long on the market", "Special levy mentioned"].includes(title))).toEqual([]);
   });
 });
+
+describe("upkeep of a house you own", () => {
+  const house = listing({
+    title: "House",
+    offer: "buy",
+    priceEur: 350000,
+    livingAreaM2: 140,
+    propertyType: "house",
+    city: "Darmstadt",
+    postalCode: "64283",
+    state: "HE",
+    yearBuilt: 1990,
+    condoFeeEur: null,
+    energyClass: "C",
+  });
+  const context = { nowYear: 2026 };
+
+  it("adds maintenance, property tax and insurance to the monthly total", () => {
+    const result = analyze(house, assumptions, context);
+    // 10 EUR/m2 x 1.4 (36 years old) x 140 m2 / 12 = 163.3; 450 / 12 = 37.5; 2.5 x 140 / 12 = 29.2
+    expect(result.monthlyMaintenance).toBe(163);
+    expect(result.monthlyPropertyTax).toBe(38);
+    expect(result.monthlyInsurance).toBe(29);
+    expect(result.monthlyTotal).toBe((result.monthlyDebt ?? 0) + (result.monthlyHeating ?? 0) + 163 + 38 + 29);
+  });
+
+  it("scales maintenance with the age of the building and uses the newer of build and refurbishment year", () => {
+    const monthly = (partial: Partial<ListingInput>) => analyze({ ...house, ...partial }, assumptions, context).monthlyMaintenance;
+    expect(monthly({ yearBuilt: 2022 })).toBe(58); // 0.5
+    expect(monthly({ yearBuilt: 2010 })).toBe(117); // 1.0
+    expect(monthly({ yearBuilt: 1980 })).toBe(163); // 1.4
+    expect(monthly({ yearBuilt: 1900 })).toBe(210); // 1.8
+    expect(monthly({ yearBuilt: 1900, yearRefurbished: 2020 })).toBe(58);
+    expect(monthly({ yearBuilt: null })).toBe(117); // unknown age is the middle band
+  });
+
+  it("keeps the total partial and the cost null when the living area is unknown", () => {
+    const result = analyze({ ...house, livingAreaM2: null }, assumptions, context);
+    expect(result.monthlyMaintenance).toBeNull();
+    expect(result.monthlyInsurance).toBeNull();
+    expect(result.monthlyPropertyTax).toBe(38);
+    expect(result.monthlyTotal).toBeNull();
+    expect(result.monthlyPartial).toBe((result.monthlyDebt ?? 0) + 38);
+  });
+
+  it("applies to a multi-family house but not to an apartment, a plot or a rental", () => {
+    const multi = analyze({ ...house, propertyType: "multi" }, assumptions, context);
+    expect(multi.monthlyMaintenance).toBe(163);
+    expect(multi.monthlyCondoFee).toBe(0);
+    expect(multi.monthlyTotal).toBe((multi.monthlyDebt ?? 0) + (multi.monthlyHeating ?? 0) + 163 + 38 + 29);
+    const apartment = analyze({ ...house, propertyType: "apartment", condoFeeEur: 300 }, assumptions, context);
+    expect([apartment.monthlyMaintenance, apartment.monthlyPropertyTax, apartment.monthlyInsurance]).toEqual([null, null, null]);
+    expect(apartment.monthlyTotal).toBe((apartment.monthlyDebt ?? 0) + (apartment.monthlyHeating ?? 0) + 300);
+    const land = analyze({ ...house, propertyType: "land" }, assumptions, context);
+    expect(land.monthlyMaintenance).toBeNull();
+    const rent = analyze({ ...house, offer: "rent", priceEur: 1800 }, assumptions, context);
+    expect([rent.monthlyMaintenance, rent.monthlyPropertyTax, rent.monthlyInsurance]).toEqual([null, null, null]);
+  });
+
+  it("does not add upkeep and insurance on top of a stated Hausgeld, but still adds property tax", () => {
+    const without = analyze(house, assumptions, context);
+    for (const propertyType of ["house", "multi"] as const) {
+      const wohnung = analyze({ ...house, propertyType, condoFeeEur: 250 }, assumptions, context);
+      expect(wohnung.monthlyCondoFee).toBe(250);
+      expect(wohnung.monthlyMaintenance).toBeNull();
+      expect(wohnung.monthlyInsurance).toBeNull();
+      expect(wohnung.monthlyPropertyTax).toBe(38);
+      expect(wohnung.monthlyTotal).toBe((wohnung.monthlyDebt ?? 0) + (wohnung.monthlyHeating ?? 0) + 250 + 38);
+      // Against the same house with no Hausgeld: it swaps 163 + 29 for the stated 250.
+      expect((wohnung.monthlyTotal ?? 0) - (without.monthlyTotal ?? 0)).toBe(250 - 163 - 29);
+    }
+    // The Hausgeld still counts when the living area is unknown. Heating needs the area, so the total stays open.
+    const noArea = analyze({ ...house, livingAreaM2: null, condoFeeEur: 250 }, assumptions, context);
+    expect(noArea.monthlyTotal).toBeNull(); // heating needs the area
+    expect(noArea.monthlyPartial).toBe((noArea.monthlyDebt ?? 0) + 250 + 38);
+  });
+
+  it("follows the assumptions", () => {
+    const result = analyze(house, { ...assumptions, maintenanceEurPerM2Year: 0, propertyTaxEurYear: 0, insuranceEurPerM2Year: 0 }, context);
+    expect([result.monthlyMaintenance, result.monthlyPropertyTax, result.monthlyInsurance]).toEqual([0, 0, 0]);
+  });
+});
