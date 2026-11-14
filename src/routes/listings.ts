@@ -392,7 +392,7 @@ export async function listingsRoute(app: FastifyInstance) {
       coverUrl: input.images.find((image) => image.kind === "photo")?.url ?? null,
       descriptionFindings: full ? findings : null,
       analysis,
-      // Dozens of analyses per listing, so only the detail route pays for it. The list sends null.
+      // Dozens of analyses per listing, so only the detail responses pay for it (GET and PATCH of one listing). The list and the ingest responses send null.
       maxOffer: full ? maxOffer(analysed, model, market) : null,
       observations: full ? allObservations : allObservations.slice(0, 12),
       priceHistory,

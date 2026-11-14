@@ -1,8 +1,6 @@
-import { analyze, type AnalysisContext } from "./analyze.js";
+import { analyze, WORTH_A_LOOK, type AnalysisContext } from "./analyze.js";
 import type { Assumptions, ListingInput } from "./types.js";
 
-/** The score from which the verdict reads "worth a look". */
-export const WORTH_A_LOOK = 65;
 /**
  * No search goes below this. Fees are rounded to whole euros, so at a price of a few euros the cost load looks lower than
  * it is, and the score is spuriously high. From here the rounding is far too small to move a score.
@@ -10,6 +8,8 @@ export const WORTH_A_LOOK = 65;
 const FLOOR_EUR = 10_000;
 /** No search goes above this. A result at the ceiling means nothing stopped the price from rising, so it is not a price. */
 const CEILING_EUR = 50_000_000;
+
+export { WORTH_A_LOOK };
 
 export type MaxOffer = {
   /** The highest asking price at which the monthly total still fits the monthly budget. */

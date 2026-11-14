@@ -90,6 +90,15 @@ describe("maxOffer score price", () => {
   });
 });
 
+describe("maxOffer score target", () => {
+  it("is the score at which the verdict reads worth a look", () => {
+    const listing = built();
+    const price = maxOffer(listing, withTarget, { nowYear: 2026 })?.scorePriceEur ?? 0;
+    expect(at(listing, withTarget, price).verdict).toBe("worth a look");
+    expect(at(listing, withTarget, price + 1).verdict).toBe("mixed");
+  });
+});
+
 describe("maxOffer applicability", () => {
   it("is null for a rental, which is never scored", () => {
     expect(maxOffer(built({ offer: "rent", priceEur: 1200 }), withBudget)).toBeNull();
