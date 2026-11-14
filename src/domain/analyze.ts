@@ -1,4 +1,4 @@
-import { annuityMonthly, lookupBenchmark, resolveState, roundEuro, stateById } from "./reference.js";
+import { annuityMonthly, lookupBenchmark, remainingBalance, resolveState, roundEuro, stateById } from "./reference.js";
 import type { Bodenrichtwert } from "./bodenrichtwert.js";
 import type { DescriptionFinding } from "./describe.js";
 import type { DistrictSaleBand } from "./district-band.js";
@@ -33,6 +33,13 @@ export type Analysis = {
   equityCoversCosts: boolean | null;
   monthlyDebt: number | null;
   initialRepaymentPercent: number | null;
+  /** The fixed-rate period the figures below refer to. Null without a loan. */
+  fixedYears: number | null;
+  /** Still owed when the fixed-rate period ends. Zero when it covers the whole term. */
+  remainingDebtEur: number | null;
+  /** The payment on that debt over the rest of the term if the rate is then one or two points higher. Null when nothing is left. */
+  refinanceMonthlyPlus1Eur: number | null;
+  refinanceMonthlyPlus2Eur: number | null;
   monthlyHeating: number | null;
   annualHeating: number | null;
   heatingKwh: number | null;
@@ -246,6 +253,10 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   let equityCoversCosts: boolean | null = null;
   let monthlyDebt: number | null = null;
   let initialRepaymentPercent: number | null = null;
+  let fixedYears: number | null = null;
+  let remainingDebtEur: number | null = null;
+  let refinanceMonthlyPlus1Eur: number | null = null;
+  let refinanceMonthlyPlus2Eur: number | null = null;
 
   if (buy && price != null && price > 0) {
     // A parking space sold with the home is part of the same purchase, so taxes and fees are charged on it too.
@@ -284,6 +295,16 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
         const interest = loanEur * (assumptions.interestPercent / 100);
         initialRepaymentPercent = ((yearly - interest) / loanEur) * 100;
       } else initialRepaymentPercent = 0;
+      if (loanEur > 0) {
+        fixedYears = assumptions.fixedYears;
+        const owed = remainingBalance(loanEur, assumptions.interestPercent, assumptions.termYears, assumptions.fixedYears);
+        remainingDebtEur = roundEuro(owed);
+        const yearsLeft = assumptions.termYears - assumptions.fixedYears;
+        if (owed > 0 && yearsLeft > 0) {
+          refinanceMonthlyPlus1Eur = roundEuro(annuityMonthly(owed, assumptions.interestPercent + 1, yearsLeft));
+          refinanceMonthlyPlus2Eur = roundEuro(annuityMonthly(owed, assumptions.interestPercent + 2, yearsLeft));
+        }
+      }
     }
   }
 
@@ -552,7 +573,7 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
     pricePerLivingM2, pricePerPlotM2, pricePerRoom, rentPerM2, transferTaxPercent, transferTaxEur, notaryEur, registerEur,
     commissionPercent, commissionAssumed, commissionEur, parkingEur, parkingUnitEur, parkingSpaces, parkingSpacesAssumed,
     extraEur, cashToCloseEur, equityEur, loanEur, equityCoversCosts,
-    monthlyDebt, initialRepaymentPercent, monthlyHeating, annualHeating, heatingKwh: kwh,
+    monthlyDebt, initialRepaymentPercent, fixedYears, remainingDebtEur, refinanceMonthlyPlus1Eur, refinanceMonthlyPlus2Eur, monthlyHeating, annualHeating, heatingKwh: kwh,
     heatingEuroPerKwh: listing.propertyType === "land" ? null : euroKwh, monthlyCondoFee, monthlyGroundRent, monthlyMaintenance, monthlyPropertyTax, monthlyInsurance, monthlyTotal,
     monthlyPartial, grossYield, benchmark, benchmarkDeltaPct, subscores: normalized, score, verdict, flags,
   };

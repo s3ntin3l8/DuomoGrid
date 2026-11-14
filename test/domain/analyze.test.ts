@@ -531,3 +531,52 @@ describe("upkeep of a house you own", () => {
     expect([result.monthlyMaintenance, result.monthlyPropertyTax, result.monthlyInsurance]).toEqual([0, 0, 0]);
   });
 });
+
+describe("fixed-rate period", () => {
+  const buy = listing({ title: "Flat", offer: "buy", priceEur: 300000, livingAreaM2: 80, rooms: 3, city: "Darmstadt", postalCode: "64283", state: "HE", yearBuilt: 2000, condoFeeEur: 300 });
+
+  it("reports the debt left after the period and the payment at the current rate plus one and two points", () => {
+    const result = analyze(buy, assumptions);
+    const loan = result.loanEur ?? 0;
+    expect(loan).toBeGreaterThan(0);
+    let balance = loan;
+    const rate = assumptions.interestPercent / 100 / 12;
+    const payment = result.monthlyDebt ?? 0;
+    for (let month = 0; month < 120; month += 1) balance = balance * (1 + rate) - payment;
+    expect(result.fixedYears).toBe(10);
+    // monthlyDebt is rounded to whole euros, so the walk can differ from the exact balance by a little.
+    expect(Math.abs((result.remainingDebtEur ?? 0) - balance)).toBeLessThan(300);
+    const owed = result.remainingDebtEur ?? 0;
+    const again = (extra: number) => {
+      const r = (assumptions.interestPercent + extra) / 100 / 12;
+      const n = 240;
+      return (owed * r * (1 + r) ** n) / ((1 + r) ** n - 1);
+    };
+    expect(result.refinanceMonthlyPlus1Eur).toBe(Math.round(again(1)));
+    expect(result.refinanceMonthlyPlus2Eur).toBe(Math.round(again(2)));
+    expect(result.refinanceMonthlyPlus2Eur ?? 0).toBeGreaterThan(result.refinanceMonthlyPlus1Eur ?? 0);
+  });
+
+  it("follows the assumed period", () => {
+    const short = analyze(buy, { ...assumptions, fixedYears: 5 });
+    const long = analyze(buy, { ...assumptions, fixedYears: 20 });
+    expect(short.fixedYears).toBe(5);
+    expect(short.remainingDebtEur ?? 0).toBeGreaterThan(long.remainingDebtEur ?? 0);
+  });
+
+  it("is zero debt and no refinancing when the period covers the whole term", () => {
+    for (const fixedYears of [30, 40]) {
+      const result = analyze(buy, { ...assumptions, fixedYears });
+      expect(result.remainingDebtEur).toBe(0);
+      expect(result.refinanceMonthlyPlus1Eur).toBeNull();
+      expect(result.refinanceMonthlyPlus2Eur).toBeNull();
+    }
+  });
+
+  it("is null without a loan, without a known state, and for a rental", () => {
+    const empty = (result: ReturnType<typeof analyze>) => [result.fixedYears, result.remainingDebtEur, result.refinanceMonthlyPlus1Eur, result.refinanceMonthlyPlus2Eur];
+    expect(empty(analyze(buy, { ...assumptions, equityMode: "percent", equityPercent: 150 }))).toEqual([null, null, null, null]);
+    expect(empty(analyze({ ...buy, state: null, postalCode: null }, assumptions))).toEqual([null, null, null, null]);
+    expect(empty(analyze({ ...buy, offer: "rent", priceEur: 1200 }, assumptions))).toEqual([null, null, null, null]);
+  });
+});
