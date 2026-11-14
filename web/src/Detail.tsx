@@ -406,9 +406,9 @@ function Cohort({ row }: { row: DeskListing }) {
       {rentComparison && rentComparison.rentCount > 0 && rentComparison.medianColdRentEur != null ? (
         <p className="note">
           Saved rentals nearby ask about {eur(rentComparison.medianColdRentEur)} cold.
-          {rentComparison.carryingMinusMedianCold != null
-            ? ` Owning costs ${eur(Math.abs(rentComparison.carryingMinusMedianCold))} ${rentComparison.carryingMinusMedianCold > 0 ? "more" : "less"} per month.`
-            : ""}
+          {rentComparison.horizon
+            ? ` Over ${num(rentComparison.horizon.horizonYears)} years, buying costs about ${eur(rentComparison.horizon.unrecoverableBuyMonthlyEur)} a month that you do not get back (interest, upkeep, purchase costs and what your equity would have earned), against rent averaging ${eur(rentComparison.horizon.averageRentMonthlyEur)}. Net wealth after that time: ${eur(rentComparison.horizon.netWealthBuyEur)} buying, ${eur(rentComparison.horizon.netWealthRentEur)} renting and investing the difference, so buying ends ${eur(Math.abs(rentComparison.horizon.buyAdvantageEur))} ${rentComparison.horizon.buyAdvantageEur >= 0 ? "ahead" : "behind"}. This depends on the price, return and rent assumptions, and leaves out selling costs.`
+            : " The cost of owning is incomplete, so there is no comparison."}
         </p>
       ) : null}
     </>

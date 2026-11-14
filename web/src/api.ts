@@ -7,6 +7,10 @@ export type Assumptions = {
   notaryPercent: number;
   registerPercent: number;
   fallbackCommissionPercent: number;
+  horizonYears: number;
+  equityReturnPercent: number;
+  appreciationPercent: number;
+  rentGrowthPercent: number;
   maintenanceEurPerM2Year: number;
   propertyTaxEurYear: number;
   insuranceEurPerM2Year: number;
@@ -116,6 +120,7 @@ export type DeskListing = {
     monthlyHeating: number | null;
     monthlyCondoFee: number | null;
     monthlyGroundRent: number | null;
+    monthlyRunning: number | null;
     monthlyMaintenance: number | null;
     monthlyPropertyTax: number | null;
     monthlyInsurance: number | null;
@@ -149,8 +154,17 @@ export type DeskListing = {
   rentComparison: {
     rentCount: number;
     medianColdRentEur: number | null;
-    monthlyCarryingEur: number | null;
-    carryingMinusMedianCold: number | null;
+    /** Null without a rent sample or when the cost of owning is incomplete. */
+    horizon: {
+      horizonYears: number;
+      unrecoverableBuyMonthlyEur: number;
+      averageRentMonthlyEur: number;
+      homeValueEur: number;
+      remainingDebtEur: number;
+      netWealthBuyEur: number;
+      netWealthRentEur: number;
+      buyAdvantageEur: number;
+    } | null;
   } | null;
   bodenrichtwert: {
     status: "unknown" | "none" | "published" | "unpublished";

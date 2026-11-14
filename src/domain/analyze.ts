@@ -45,6 +45,8 @@ export type Analysis = {
   monthlyPropertyTax: number | null;
   /** Same rule as maintenance: null without a living area and when a stated Hausgeld covers it. */
   monthlyInsurance: number | null;
+  /** What owning costs each month apart from the loan and the heating, which a renter pays too. Null when any part is unknown. */
+  monthlyRunning: number | null;
   monthlyTotal: number | null;
   monthlyPartial: number | null;
   grossYield: number | null;
@@ -313,6 +315,8 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
     ...(ownsUpkeep ? [monthlyMaintenance, monthlyInsurance] : []),
     ...(ownsBuilding ? [monthlyPropertyTax] : []),
   ];
+  const runningParts = [monthlyCondoFee, listing.leasehold ? monthlyGroundRent : 0, ...(ownsUpkeep ? [monthlyMaintenance, monthlyInsurance] : []), ...(ownsBuilding ? [monthlyPropertyTax] : [])];
+  const monthlyRunning = buy && runningParts.every((part) => part != null) ? (runningParts as number[]).reduce((sum, part) => sum + part, 0) : null;
   const knownMonthly = monthlyParts.filter((part): part is number => part != null);
   const monthlyPartial = knownMonthly.length ? knownMonthly.reduce((sum, part) => sum + part, 0) : null;
   const monthlyComplete = buy && monthlyParts.every((part) => part != null);
@@ -553,7 +557,7 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
     commissionPercent, commissionAssumed, commissionEur, parkingEur, parkingUnitEur, parkingSpaces, parkingSpacesAssumed,
     extraEur, cashToCloseEur, equityEur, loanEur, equityCoversCosts,
     monthlyDebt, initialRepaymentPercent, monthlyHeating, annualHeating, heatingKwh: kwh,
-    heatingEuroPerKwh: listing.propertyType === "land" ? null : euroKwh, monthlyCondoFee, monthlyGroundRent, monthlyMaintenance, monthlyPropertyTax, monthlyInsurance, monthlyTotal,
+    heatingEuroPerKwh: listing.propertyType === "land" ? null : euroKwh, monthlyCondoFee, monthlyGroundRent, monthlyMaintenance, monthlyPropertyTax, monthlyInsurance, monthlyRunning, monthlyTotal,
     monthlyPartial, grossYield, benchmark, benchmarkDeltaPct, subscores: normalized, score, verdict, flags,
   };
 }

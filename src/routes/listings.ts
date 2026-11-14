@@ -3,7 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { installIngestGuard } from "../auth/guard.js";
 import { normalizeAssumptions } from "../domain/assumptions.js";
 import { analyze } from "../domain/analyze.js";
-import { cohortSummary, rentAgainstBuy, type CohortRow } from "../domain/compare.js";
+import { cohortSummary, rentAgainstBuy, type CohortRow, type PurchaseSnapshot } from "../domain/compare.js";
 import { describeFindings, type DescriptionFindings } from "../domain/describe.js";
 import { priceHistoryOf } from "../domain/history.js";
 import { exactPoint, parseIngest, type ExtraKey } from "../domain/ingest.js";
@@ -88,6 +88,19 @@ function asInput(row: ListingRow, priceEur: number | null): ListingInput {
     description: jsonOr<ListingDescription | null>(row.descriptionJson, null),
     details: jsonOr<DetailPair[]>(row.detailsJson, []),
     images: jsonOr<ImageRef[]>(row.imagesJson, []),
+  };
+}
+
+/** The day-one figures the rent comparison needs. All of them or none: an unknown cost is not 0. */
+function purchaseOf(analysis: ReturnType<typeof analyze>): PurchaseSnapshot | null {
+  const { cashToCloseEur, extraEur, loanEur, monthlyRunning } = analysis;
+  if (cashToCloseEur == null || extraEur == null || loanEur == null || monthlyRunning == null) return null;
+  return {
+    purchasePriceEur: cashToCloseEur - extraEur,
+    closingCostsEur: extraEur,
+    equityPaidEur: cashToCloseEur - loanEur,
+    loanEur,
+    runningMonthlyEur: monthlyRunning,
   };
 }
 
@@ -393,7 +406,7 @@ export async function listingsRoute(app: FastifyInstance) {
       observations: full ? allObservations : allObservations.slice(0, 12),
       priceHistory,
       cohort: cohortSummary(subject, everyone),
-      rentComparison: rentAgainstBuy({ ...subject, monthlyCarryingEur: analysis.monthlyTotal }, everyone),
+      rentComparison: rentAgainstBuy({ ...subject, purchase: purchaseOf(analysis) }, everyone, model),
       bodenrichtwert,
       districtSaleBand,
     };

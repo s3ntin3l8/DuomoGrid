@@ -1,5 +1,6 @@
 import { fold } from "./reference.js";
-import type { Offer } from "./types.js";
+import { rentVsBuy } from "./rent-vs-buy.js";
+import type { Assumptions, Offer } from "./types.js";
 
 export type CohortRow = {
   offer: Offer;
@@ -43,15 +44,32 @@ export function cohortSummary(subject: CohortRow, rows: CohortRow[]) {
   return { count: values.length, medianEurPerM2, deltaPct };
 }
 
-export function rentAgainstBuy(subject: CohortRow & { monthlyCarryingEur: number | null }, rows: CohortRow[]) {
+/** What the buyer pays and owes on day one, read from the analysis. Null when any of it is unknown. */
+export type PurchaseSnapshot = {
+  purchasePriceEur: number;
+  closingCostsEur: number;
+  equityPaidEur: number;
+  loanEur: number;
+  runningMonthlyEur: number;
+};
+
+export function rentAgainstBuy(subject: CohortRow & { purchase: PurchaseSnapshot | null }, rows: CohortRow[], assumptions: Assumptions) {
   if (subject.offer !== "buy") return null;
   const rents = rows.filter((row) => row.offer === "rent" && fold(row.city) === fold(subject.city) && row.propertyType === subject.propertyType);
   const cold = rents.map((row) => row.coldRentEur).filter((value): value is number => value != null && value > 0);
   const medianColdRentEur = median(cold);
-  return {
-    rentCount: cold.length,
-    medianColdRentEur,
-    monthlyCarryingEur: subject.monthlyCarryingEur,
-    carryingMinusMedianCold: subject.monthlyCarryingEur != null && medianColdRentEur != null ? subject.monthlyCarryingEur - medianColdRentEur : null,
-  };
+  const horizon =
+    subject.purchase != null && medianColdRentEur != null
+      ? rentVsBuy({
+          ...subject.purchase,
+          interestPercent: assumptions.interestPercent,
+          termYears: assumptions.termYears,
+          coldRentEur: medianColdRentEur,
+          horizonYears: assumptions.horizonYears,
+          equityReturnPercent: assumptions.equityReturnPercent,
+          appreciationPercent: assumptions.appreciationPercent,
+          rentGrowthPercent: assumptions.rentGrowthPercent,
+        })
+      : null;
+  return { rentCount: cold.length, medianColdRentEur, horizon };
 }

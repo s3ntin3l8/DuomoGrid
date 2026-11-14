@@ -11,6 +11,12 @@ function nonNegative(value: unknown, fallback: number): number {
   return parsed >= 0 ? parsed : fallback;
 }
 
+/** A period of zero or less is meaningless, so it falls back to the default. */
+function positive(value: unknown, fallback: number): number {
+  const parsed = numberOr(value, fallback);
+  return parsed > 0 ? parsed : fallback;
+}
+
 function numberOrNull(value: unknown): number | null {
   if (value == null || value === "") return null;
   const parsed = typeof value === "number" ? value : Number(value);
@@ -33,6 +39,10 @@ export function normalizeAssumptions(input: unknown): Assumptions {
     maintenanceEurPerM2Year: nonNegative(body.maintenanceEurPerM2Year, DEFAULT_ASSUMPTIONS.maintenanceEurPerM2Year),
     propertyTaxEurYear: nonNegative(body.propertyTaxEurYear, DEFAULT_ASSUMPTIONS.propertyTaxEurYear),
     insuranceEurPerM2Year: nonNegative(body.insuranceEurPerM2Year, DEFAULT_ASSUMPTIONS.insuranceEurPerM2Year),
+    horizonYears: positive(body.horizonYears, DEFAULT_ASSUMPTIONS.horizonYears),
+    equityReturnPercent: numberOr(body.equityReturnPercent, DEFAULT_ASSUMPTIONS.equityReturnPercent),
+    appreciationPercent: numberOr(body.appreciationPercent, DEFAULT_ASSUMPTIONS.appreciationPercent),
+    rentGrowthPercent: numberOr(body.rentGrowthPercent, DEFAULT_ASSUMPTIONS.rentGrowthPercent),
     monthlyBudgetEur: numberOrNull(body.monthlyBudgetEur),
     targetEurPerM2: numberOrNull(body.targetEurPerM2),
     defaultState,
