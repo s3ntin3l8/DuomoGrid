@@ -94,6 +94,8 @@ export type ListingInput = {
 
 /** The only hosts an image may be loaded from. The desk's img-src allows the same two. */
 export const IMAGE_HOSTS = ["pictures.immobilienscout24.de", "mms.immowelt.de"] as const;
+/** Photos and floor plans are capped apart, so many photos never push the plans out. Mirrored in extension/extract.js. */
+export const IMAGE_QUOTA = { photo: 30, floorplan: 10 } as const;
 export type ImageRef = { url: string; caption: string | null; kind: "photo" | "floorplan" };
 
 export type ParkingType = "garage" | "underground" | "carport" | "outdoor" | "other";

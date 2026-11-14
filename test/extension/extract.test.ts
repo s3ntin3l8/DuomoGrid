@@ -116,6 +116,17 @@ describe("extract helpers", () => {
     }
   });
 
+  it("applies the image quotas inside buildListing for a direct caller", () => {
+    const { duomoBuildListing } = globalThis as ExtractGlobals & {
+      duomoBuildListing: (r: Record<string, unknown>[], p: Record<string, unknown>) => { ok: boolean; listing?: { images?: { kind: string }[] } };
+    };
+    const photos = Array.from({ length: 45 }, (_, index) => ({ url: `https://mms.immowelt.de/p${index}.jpg`, caption: null, kind: "photo" }));
+    const plans = Array.from({ length: 12 }, (_, index) => ({ url: `https://mms.immowelt.de/f${index}.jpg`, caption: null, kind: "floorplan" }));
+    const images = duomoBuildListing([], { ...page, images: [...photos, ...plans] }).listing?.images ?? [];
+    expect(images.filter((image) => image.kind === "photo")).toHaveLength(30);
+    expect(images.filter((image) => image.kind === "floorplan")).toHaveLength(10);
+  });
+
   it("leaves description and details out when nothing was found, so a partial page never blanks stored text", () => {
     const { duomoBuildListing } = globalThis as ExtractGlobals & {
       duomoBuildListing: (r: Record<string, unknown>[], p: typeof page) => { ok: boolean; listing?: Record<string, unknown> };

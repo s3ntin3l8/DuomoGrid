@@ -1,5 +1,5 @@
 import { parseState } from "./reference.js";
-import { IMAGE_HOSTS } from "./types.js";
+import { IMAGE_HOSTS, IMAGE_QUOTA } from "./types.js";
 import type { DetailPair, EnergyCert, ImageRef, ListingDescription, ListingInput, Offer, ParkingType, PropertyType, Source } from "./types.js";
 
 /** Keys added after the first extension release. A body that lacks one keeps the stored value on a re-save. */
@@ -86,9 +86,6 @@ function detailsOf(value: unknown): DetailPair[] {
 /** Portal placeholders for "not stated". Same pattern as in extension/extract.js. */
 const ABSENT = /^(no[_ ]information|keine angabe|n\/a)$/i;
 
-/** Photos and floor plans have their own quotas, so a gallery full of photos can never push the plans out. */
-const PHOTOS_MAX = 30;
-const PLANS_MAX = 10;
 const IMAGE_URL_MAX = 2048;
 
 /** https only, and only from the two portal CDNs. Anything else is dropped, not rewritten. */
@@ -115,13 +112,13 @@ function imagesOf(value: unknown): ImageRef[] {
     const href = url.toString();
     if (seen.has(href)) continue;
     const kind = body.kind === "floorplan" ? "floorplan" : "photo";
-    if (kind === "floorplan" ? plans >= PLANS_MAX : photos >= PHOTOS_MAX) continue;
+    if (kind === "floorplan" ? plans >= IMAGE_QUOTA.floorplan : photos >= IMAGE_QUOTA.photo) continue;
     seen.add(href);
     if (kind === "floorplan") plans += 1;
     else photos += 1;
     const caption = String(body.caption ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
     images.push({ url: href, caption: caption || null, kind });
-    if (photos >= PHOTOS_MAX && plans >= PLANS_MAX) break;
+    if (photos >= IMAGE_QUOTA.photo && plans >= IMAGE_QUOTA.floorplan) break;
   }
   return images;
 }

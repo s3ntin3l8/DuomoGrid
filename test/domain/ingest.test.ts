@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import { energySourceOf, parseIngest } from "../../src/domain/ingest.js";
-import { IMAGE_HOSTS } from "../../src/domain/types.js";
+import { IMAGE_HOSTS, IMAGE_QUOTA } from "../../src/domain/types.js";
 
 describe("parseIngest location", () => {
   it("keeps an in-range point and marks it exact", () => {
@@ -275,6 +275,12 @@ describe("parseIngest images", () => {
     // The first of each kind is kept, in the order they came.
     expect(parsed.listing.images[0]?.url).toContain("p0.jpg");
     expect(parsed.listing.images.find((image) => image.kind === "floorplan")?.url).toContain("f0.jpg");
+  });
+
+  it("keeps the extension's quotas the same as the server's", () => {
+    const source = fs.readFileSync(new URL("../../extension/extract.js", import.meta.url), "utf8");
+    expect(Number(/const PHOTOS_MAX = (\d+)/.exec(source)?.[1])).toBe(IMAGE_QUOTA.photo);
+    expect(Number(/const PLANS_MAX = (\d+)/.exec(source)?.[1])).toBe(IMAGE_QUOTA.floorplan);
   });
 
   it("keeps the extension's host list the same as the server's", () => {

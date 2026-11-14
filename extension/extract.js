@@ -445,10 +445,14 @@
     return found ? found[1].toLowerCase() : url;
   }
 
+  function withinQuota(list, kind) {
+    return list.filter((image) => image.kind === kind).length < (kind === "floorplan" ? PLANS_MAX : PHOTOS_MAX);
+  }
+
   function addImage(list, seen, url, caption, kind) {
     const href = typeof url === "string" ? url.trim() : "";
     if (!/^https:\/\//.test(href)) return;
-    if (list.filter((image) => image.kind === kind).length >= (kind === "floorplan" ? PLANS_MAX : PHOTOS_MAX)) return;
+    if (!withinQuota(list, kind)) return;
     try {
       if (!IMAGE_HOSTS.includes(new URL(href).hostname)) return;
     } catch {
@@ -768,7 +772,11 @@
     const heatingSystem = heatingSystemOf(pick(records, ["heatingsystem"])) ?? heatingSystemOf(heatingType);
     const energySource = energySourceOf(pick(records, ["energysource"]) ?? firing);
     const detailPairs = Array.isArray(page.details) ? page.details.slice(0, 40) : [];
-    const imageList = Array.isArray(page.images) ? page.images.slice(0, PHOTOS_MAX + PLANS_MAX) : [];
+    // The quota is enforced here too, so a direct caller of buildListing gets the same invariant as the extractor.
+    const imageList = [];
+    for (const image of Array.isArray(page.images) ? page.images : []) {
+      if (image && withinQuota(imageList, image.kind === "floorplan" ? "floorplan" : "photo")) imageList.push(image);
+    }
     const leasehold = yes(pick(records, ["objleasehold", "leasehold", "erbpacht"])) || /\b(erbpacht|erbbaurecht)\b/i.test(description);
     const monument = yes(pick(records, ["objlisted", "listed", "denkmal", "monument"])) || /denkmalschutz/i.test(description);
     const rentedOut = yes(pick(records, ["objrented", "rented", "vermietet"])) || /(?<!nicht\s)\bvermietet\b/i.test(description);
