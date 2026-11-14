@@ -5,6 +5,9 @@ import type { DistrictSaleBand } from "./district-band.js";
 import type { PriceHistory } from "./history.js";
 import type { Assumptions, Flag, ListingInput, Subscore } from "./types.js";
 
+/** The score from which the verdict reads "worth a look". `maxOffer` solves for the price at this score. */
+export const WORTH_A_LOOK = 65;
+
 export type Analysis = {
   offer: ListingInput["offer"];
   stateId: string | null;
@@ -567,7 +570,7 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   const weightSum = used.reduce((sum, part) => sum + part.weight, 0) || 1;
   const normalized = parts.map((part) => ({ ...part, weight: part.applicable ? part.weight / weightSum : 0, score: Math.round(part.score) }));
   const score = buy ? Math.round(normalized.filter((part) => part.applicable).reduce((sum, part) => sum + part.score * part.weight, 0)) : null;
-  const verdict = score == null ? "rent" : score >= 80 ? "workable" : score >= 65 ? "worth a look" : score >= 50 ? "mixed" : "careful";
+  const verdict = score == null ? "rent" : score >= 80 ? "workable" : score >= WORTH_A_LOOK ? "worth a look" : score >= 50 ? "mixed" : "careful";
 
   return {
     offer: listing.offer, stateId: state.id, stateName: stateInfo?.name ?? null, stateSource: state.source,

@@ -150,6 +150,8 @@ export type DeskListing = {
     startedBasis: "portal" | "saved";
     daysOnMarket: number;
   };
+  /** Null on the list. The detail route fills it for a buy listing. */
+  maxOffer: { budgetPriceEur: number | null; scorePriceEur: number | null; scoreTarget: number } | null;
   cohort: { count: number; medianEurPerM2: number | null; deltaPct: number | null };
   rentComparison: {
     rentCount: number;

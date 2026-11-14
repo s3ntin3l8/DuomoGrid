@@ -162,6 +162,7 @@ export function Detail({
             <Line label={analysis.monthlyTotal != null ? "Total" : "Known so far"} value={eur(analysis.monthlyTotal ?? analysis.monthlyPartial)} total />
           </dl>
           {analysis.grossYield != null ? <p className="note">Gross yield {num(analysis.grossYield, 1)}% on the cold rent you entered.</p> : null}
+          <MaxOffer row={row} />
           <Cohort row={row} />
         </section>
       </div>
@@ -393,6 +394,31 @@ function Line({ label, value, total = false }: { label: string; value: string; t
       <dt>{label}</dt>
       <dd>{value}</dd>
     </div>
+  );
+}
+
+function MaxOffer({ row }: { row: DeskListing }) {
+  const { maxOffer, listing } = row;
+  if (listing.offer !== "buy" || !maxOffer) return null;
+  const asking = listing.priceEur;
+  const lines = [
+    maxOffer.budgetPriceEur != null ? { label: "Highest price inside your monthly budget", price: maxOffer.budgetPriceEur } : null,
+    maxOffer.scorePriceEur != null ? { label: `Highest price that still scores ${maxOffer.scoreTarget}`, price: maxOffer.scorePriceEur } : null,
+  ].filter((line): line is { label: string; price: number } => line != null);
+  if (!lines.length) return null;
+  const against = (price: number) => {
+    if (asking == null) return eur(price);
+    return `${eur(price)} (${price >= asking ? `${eur(price - asking)} above` : `${eur(asking - price)} below`} the asking price)`;
+  };
+  return (
+    <>
+      <dl>
+        {lines.map((line) => (
+          <Line key={line.label} label={line.label} value={against(line.price)} />
+        ))}
+      </dl>
+      <p className="note">The score and the monthly total are recalculated at each price.</p>
+    </>
   );
 }
 
