@@ -4,6 +4,7 @@ export type Assumptions = {
   equityEur: number;
   interestPercent: number;
   termYears: number;
+  fixedYears: number;
   notaryPercent: number;
   registerPercent: number;
   fallbackCommissionPercent: number;
@@ -112,6 +113,10 @@ export type DeskListing = {
     equityEur: number | null;
     loanEur: number | null;
     equityCoversCosts: boolean | null;
+    fixedYears: number | null;
+    remainingDebtEur: number | null;
+    refinanceMonthlyPlus1Eur: number | null;
+    refinanceMonthlyPlus2Eur: number | null;
     monthlyDebt: number | null;
     monthlyHeating: number | null;
     monthlyCondoFee: number | null;
