@@ -1,6 +1,8 @@
 import { annuityMonthly, lookupBenchmark, resolveState, roundEuro, stateById } from "./reference.js";
 import type { Bodenrichtwert } from "./bodenrichtwert.js";
+import type { DescriptionFinding } from "./describe.js";
 import type { DistrictSaleBand } from "./district-band.js";
+import type { PriceHistory } from "./history.js";
 import type { Assumptions, Flag, ListingInput, Subscore } from "./types.js";
 
 export type Analysis = {
@@ -19,6 +21,11 @@ export type Analysis = {
   commissionPercent: number | null;
   commissionAssumed: boolean;
   commissionEur: number | null;
+  /** Parking bought with the home: unit price times the spaces. It is part of what taxes and fees are charged on. */
+  parkingEur: number | null;
+  parkingUnitEur: number | null;
+  parkingSpaces: number | null;
+  parkingSpacesAssumed: boolean;
   extraEur: number | null;
   cashToCloseEur: number | null;
   equityEur: number | null;
@@ -64,22 +71,38 @@ function lerp(ratio: number, points: [number, number][]): number {
   return points[points.length - 1][1];
 }
 
-function heatingEuroPerKwh(heating: string | null): number {
-  const text = (heating ?? "").toLowerCase();
-  if (text.includes("wärme") && text.includes("pump")) return 0.28;
-  if (text.includes("warme") && text.includes("pump")) return 0.28;
-  if (text.includes("heat") && text.includes("pump")) return 0.28;
-  if (text.includes("strom") || text.includes("nacht") || text.includes("electric")) return 0.32;
-  if (text.includes("fern") || text.includes("district")) return 0.16;
-  if (text.includes("öl") || text.includes("oel") || text.includes("oil")) return 0.1;
-  if (text.includes("pellet") || text.includes("holz") || text.includes("wood")) return 0.08;
-  if (text.includes("gas")) return 0.11;
-  return 0.12;
-}
+type Fuel = "heatpump" | "electric" | "storage" | "district" | "oil" | "biomass" | "biogas" | "gas";
 
-function isOilOrStorage(heating: string | null): boolean {
-  const text = (heating ?? "").toLowerCase();
-  return text.includes("öl") || text.includes("oel") || text.includes("oil") || text.includes("nacht") || text.includes("night-storage") || text.includes("storage heater");
+const FUEL_RATE: Record<Fuel, number> = {
+  heatpump: 0.28,
+  electric: 0.32,
+  storage: 0.32,
+  district: 0.16,
+  oil: 0.1,
+  biomass: 0.08,
+  biogas: 0.11,
+  gas: 0.11,
+};
+
+/**
+ * What the home is heated with, decided once and used for the rate, the energy adjustment and the flags, so they cannot
+ * disagree. The fuel the exposé names wins; the combined heating label only stands in when none is named. A fuel that
+ * is named but not recognised is unknown, not read from the label. Renewable and district heat are checked before
+ * gas, so "Fernwärme aus Gas" is district heat and "Biogas" is not fossil.
+ */
+function fuelOf(listing: ListingInput): Fuel | null {
+  const text = (listing.energySource ?? listing.heating ?? "").toLowerCase();
+  if (!text.trim()) return null;
+  if (/w(ä|ae|a)rmepumpe|heat.?pump|erdw|geotherm/.test(text)) return "heatpump";
+  if (/nacht|night|storage heater/.test(text)) return "storage";
+  if (/strom|electric|elektro|infrarot|direktheiz/.test(text)) return "electric";
+  if (/fern|district/.test(text)) return "district";
+  // "Ölheizung" and "Öl-Zentralheizung" are compounds, so Öl only has to start a word. "boiler" is not oil.
+  if (/(^|[^a-zäöü])(öl|oel)|(^|[^a-z])oil([^a-z]|$)|heiz(ö|oe)l/.test(text)) return "oil";
+  if (/pellet|holz|wood|hackschnitzel/.test(text)) return "biomass";
+  if (/bio-?gas/.test(text)) return "biogas";
+  if (text.includes("gas")) return "gas";
+  return null;
 }
 
 function figure(value: number): string {
@@ -160,10 +183,19 @@ function districtBandFlag(
   return { severity: "info", title: "Inside the district sale band", detail };
 }
 
-export function analyze(listing: ListingInput, assumptions: Assumptions, market: {
+export type AnalysisContext = {
   bodenrichtwert?: Bodenrichtwert | null;
   districtSaleBand?: DistrictSaleBand | null;
-} = {}): Analysis {
+  /** Facts read from the description. A few become flags; none is a score input. */
+  findings?: DescriptionFinding[];
+  /** From the description, so it is a hint and never a stored column. Feeds the energy subscore. */
+  heatingReplacedYear?: number | null;
+  history?: Pick<PriceHistory, "firstKnownPriceEur" | "totalChangeEur" | "totalChangePct" | "reductions" | "daysOnMarket" | "startedBasis"> | null;
+  /** For tests. Defaults to the current year. */
+  nowYear?: number;
+};
+
+export function analyze(listing: ListingInput, assumptions: Assumptions, market: AnalysisContext = {}): Analysis {
   const state = resolveState(listing, assumptions);
   const stateInfo = stateById(state.id);
   const buy = listing.offer === "buy";
@@ -186,6 +218,10 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   let commissionPercent: number | null = null;
   let commissionAssumed = false;
   let commissionEur: number | null = null;
+  let parkingEur: number | null = null;
+  let parkingUnitEur: number | null = null;
+  let parkingSpaces: number | null = null;
+  let parkingSpacesAssumed = false;
   let extraEur: number | null = null;
   let cashToCloseEur: number | null = null;
   let equityEur: number | null = null;
@@ -195,24 +231,32 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   let initialRepaymentPercent: number | null = null;
 
   if (buy && price != null && price > 0) {
-    const priceRounded = roundEuro(price);
+    // A parking space sold with the home is part of the same purchase, so taxes and fees are charged on it too.
+    // Without a stated price nothing is added, and it is never counted as zero.
+    if (listing.parkingPriceEur != null && listing.parkingPriceEur > 0) {
+      parkingUnitEur = roundEuro(listing.parkingPriceEur);
+      parkingSpaces = listing.parkingSpaces ?? 1;
+      parkingSpacesAssumed = listing.parkingSpaces == null;
+      parkingEur = roundEuro(parkingUnitEur * parkingSpaces);
+    }
+    const purchaseBase = roundEuro(price) + (parkingEur ?? 0);
     if (stateInfo) {
       transferTaxPercent = stateInfo.tax;
-      transferTaxEur = roundEuro((priceRounded * stateInfo.tax) / 100);
+      transferTaxEur = roundEuro((purchaseBase * stateInfo.tax) / 100);
     }
-    notaryEur = roundEuro((priceRounded * assumptions.notaryPercent) / 100);
-    registerEur = roundEuro((priceRounded * assumptions.registerPercent) / 100);
+    notaryEur = roundEuro((purchaseBase * assumptions.notaryPercent) / 100);
+    registerEur = roundEuro((purchaseBase * assumptions.registerPercent) / 100);
     if (listing.commissionPercent != null) commissionPercent = listing.commissionPercent;
     else {
       commissionPercent = assumptions.fallbackCommissionPercent;
       commissionAssumed = true;
     }
-    commissionEur = roundEuro((priceRounded * (commissionPercent ?? 0)) / 100);
+    commissionEur = roundEuro((purchaseBase * (commissionPercent ?? 0)) / 100);
     const tax = transferTaxEur ?? 0;
     extraEur = tax + notaryEur + registerEur + commissionEur;
     if (transferTaxEur == null) extraEur = null;
-    cashToCloseEur = extraEur == null ? null : priceRounded + extraEur;
-    const equityRaw = assumptions.equityMode === "percent" ? (priceRounded * assumptions.equityPercent) / 100 : assumptions.equityEur;
+    cashToCloseEur = extraEur == null ? null : purchaseBase + extraEur;
+    const equityRaw = assumptions.equityMode === "percent" ? (purchaseBase * assumptions.equityPercent) / 100 : assumptions.equityEur;
     equityEur = roundEuro(Math.max(0, equityRaw));
     if (cashToCloseEur != null) {
       loanEur = Math.max(0, cashToCloseEur - equityEur);
@@ -227,7 +271,8 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   }
 
   const kwh = listing.energyKwh != null && listing.energyKwh > 0 ? listing.energyKwh : listing.energyClass ? (CLASS_KWH[listing.energyClass] ?? null) : null;
-  const euroKwh = heatingEuroPerKwh(listing.heating);
+  const fuel = fuelOf(listing);
+  const euroKwh = fuel ? FUEL_RATE[fuel] : 0.12;
   const annualHeating = kwh != null && living != null && living > 0 && listing.propertyType !== "land" ? roundEuro(kwh * living * euroKwh) : null;
   const monthlyHeating = annualHeating != null ? roundEuro(annualHeating / 12) : null;
   const monthlyCondoFee = listing.condoFeeEur != null ? roundEuro(listing.condoFeeEur) : listing.propertyType === "house" ? 0 : null;
@@ -259,8 +304,18 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   if (listing.energyCert === "consumption") {
     flags.push({ severity: "info", title: "Consumption certificate", detail: "The figure depends on how the last occupants lived. A demand certificate says more about the building." });
   }
-  if (isOilOrStorage(listing.heating)) {
+  const oilOrStorage = fuel === "oil" || fuel === "storage";
+  const gas = fuel === "gas";
+  // Both heating flags are about what a buyer will have to replace, so neither is shown on a rental.
+  if (buy && oilOrStorage) {
     flags.push({ severity: "warn", title: "Oil or night-storage heating", detail: "Oil or night-storage heat often means a replacement within a few years. That belongs in the negotiation." });
+  }
+  if (buy && gas) {
+    flags.push({
+      severity: "warn",
+      title: "Fossil heating may need replacing",
+      detail: "The heating runs on gas. Rules under the German heating law (GEG) can force a replacement or a switch to renewable heat. Ask how old the boiler is and budget for it.",
+    });
   }
   if (listing.yearBuilt != null && listing.yearBuilt < 1978 && (listing.yearRefurbished == null || listing.yearRefurbished < 2010) && listing.energyClass && ["E", "F", "G", "H"].includes(listing.energyClass)) {
     flags.push({ severity: "warn", title: "Unrenovated building", detail: `Built in ${listing.yearBuilt}, class ${listing.energyClass}, no visible renovation after 2010.` });
@@ -309,6 +364,59 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   const bandFlag = districtBandFlag(buy, listing, pricePerLivingM2, market.districtSaleBand);
   if (bandFlag) flags.push(bandFlag);
 
+  // Flags only. None of the following feeds a subscore.
+  if (buy && parkingEur != null && parkingUnitEur != null && parkingSpaces != null) {
+    const count = parkingSpacesAssumed ? "One space is assumed because the exposé gives no number. " : "";
+    const reading =
+      parkingSpaces > 1
+        ? `The exposé gives one price, read here as the price per space. If it is the total for all ${parkingSpaces} spaces, the cash needed is ${figure(parkingEur - parkingUnitEur)} EUR lower. `
+        : "";
+    flags.push({
+      severity: "info",
+      title: "Parking is priced separately",
+      detail: `${parkingSpaces} ${parkingSpaces === 1 ? "space" : "spaces"} at ${figure(parkingUnitEur)} EUR, ${figure(parkingEur)} EUR in all. ${count}${reading}It is added to the amount that transfer tax, notary, land register and commission are charged on, and to the cash needed. If you do not want the space, ask whether it can be left out.`,
+    });
+  }
+  const history = market.history;
+  if (buy && history && history.reductions > 0 && history.totalChangePct != null && history.totalChangePct <= -1 && history.firstKnownPriceEur != null) {
+    const cutTimes = history.reductions === 1 ? "once" : `${history.reductions} times`;
+    flags.push({
+      severity: history.totalChangePct <= -5 ? "good" : "info",
+      title: "Price has been reduced",
+      detail: `Down ${figure(Math.abs(Math.round(history.totalChangeEur ?? 0)))} EUR (${figure(Math.abs(Math.round(history.totalChangePct * 10) / 10))} percent) from the first known ${figure(history.firstKnownPriceEur)} EUR, cut ${cutTimes}. A seller who has cut before may be open to a further offer.`,
+    });
+  }
+  if (buy && history && history.startedBasis === "portal" && history.daysOnMarket >= 120) {
+    flags.push({
+      severity: "info",
+      title: "Long on the market",
+      detail: `Online on the portal for ${history.daysOnMarket} days. That can mean room to negotiate, or a reason the market has passed on it.`,
+    });
+  }
+  if (buy && pricePerLivingM2 != null && listing.portalMarketEurPerM2 != null && listing.portalMarketEurPerM2 > 0) {
+    const gap = ((pricePerLivingM2 - listing.portalMarketEurPerM2) / listing.portalMarketEurPerM2) * 100;
+    if (Math.abs(gap) >= 8) {
+      flags.push({
+        severity: "info",
+        title: gap < 0 ? "Below the portal's own estimate" : "Above the portal's own estimate",
+        detail: `${figure(Math.round(Math.abs(gap)))} percent ${gap < 0 ? "under" : "over"} the portal's ${figure(Math.round(listing.portalMarketEurPerM2))} EUR/m2 for similar objects. The portal does not say which area that covers, and it is not part of the score.`,
+      });
+    }
+  }
+  const findings = market.findings ?? [];
+  const levy = findings.find((finding) => finding.key === "special_levy");
+  if (buy && levy) {
+    flags.push({ severity: "warn", title: "Special levy mentioned", detail: `The description mentions a special levy: "${levy.snippet}" Ask the management for the minutes and the reserve.` });
+  }
+  const leaseText = findings.find((finding) => finding.key === "leasehold");
+  if (buy && leaseText && !listing.leasehold) {
+    flags.push({
+      severity: "warn",
+      title: "Leasehold mentioned in the text",
+      detail: `The listing is not marked as leasehold, but the description says: "${leaseText.snippet}" Check the land register before you rely on the price per square meter.`,
+    });
+  }
+
   const energyApplicable = listing.propertyType !== "land" && buy;
   let energyScore = 35;
   let energyNote = "Energy certificate missing";
@@ -320,9 +428,25 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
     energyScore = clamp(lerp(listing.energyKwh, [[30, 100], [50, 90], [75, 78], [100, 64], [130, 50], [160, 36], [200, 22], [250, 8]]));
     energyNote = `${Math.round(listing.energyKwh)} kWh/(m2*a)`;
   }
-  if (isOilOrStorage(listing.heating)) {
+  // One adjustment for the heating, never a stack: the worst applicable penalty, or a bonus only when there is none.
+  const nowYear = market.nowYear ?? new Date().getFullYear();
+  const heatingAge = market.heatingReplacedYear != null ? nowYear - market.heatingReplacedYear : null;
+  // Direct electric heat is priced at its real cost (0.32) but takes no energy adjustment, deliberately: only oil, night
+  // storage and gas are penalised, as before, and the energy class already carries the electric case.
+  // A stated heat pump or district heat is not made old by a boiler's age.
+  const oldHeating = heatingAge != null && heatingAge >= 30 && fuel !== "heatpump" && fuel !== "district";
+  if (oilOrStorage) {
     energyScore = clamp(energyScore - 12);
     energyNote += " · oil or night storage";
+  } else if (gas) {
+    energyScore = clamp(energyScore - 8);
+    energyNote += " · gas heating";
+  } else if (oldHeating) {
+    energyScore = clamp(energyScore - 8);
+    energyNote += ` · heating from ${market.heatingReplacedYear}`;
+  } else if (fuel === "heatpump" || fuel === "district") {
+    energyScore = clamp(energyScore + 5);
+    energyNote += " · heat pump or district heat";
   }
 
   let priceScore = 58;
@@ -348,9 +472,9 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   let costNote = "State is missing, so transfer tax is open";
   const costApplicable = Boolean(buy && price != null && extraEur != null && price > 0);
   if (costApplicable && price != null && extraEur != null) {
-    const load = extraEur / price;
+    const load = extraEur / (price + (parkingEur ?? 0));
     costScore = clamp(lerp(load, [[0.06, 94], [0.1, 74], [0.14, 46], [0.18, 24], [0.22, 10]]));
-    costNote = `Purchase costs are ${Math.round(load * 1000) / 10} percent of the price`;
+    costNote = `Purchase costs are ${Math.round(load * 1000) / 10} percent of the ${parkingEur != null ? "price plus parking" : "price"}`;
     if (commissionAssumed) costNote += " · commission assumed";
   }
 
@@ -391,7 +515,8 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   return {
     offer: listing.offer, stateId: state.id, stateName: stateInfo?.name ?? null, stateSource: state.source,
     pricePerLivingM2, pricePerPlotM2, pricePerRoom, rentPerM2, transferTaxPercent, transferTaxEur, notaryEur, registerEur,
-    commissionPercent, commissionAssumed, commissionEur, extraEur, cashToCloseEur, equityEur, loanEur, equityCoversCosts,
+    commissionPercent, commissionAssumed, commissionEur, parkingEur, parkingUnitEur, parkingSpaces, parkingSpacesAssumed,
+    extraEur, cashToCloseEur, equityEur, loanEur, equityCoversCosts,
     monthlyDebt, initialRepaymentPercent, monthlyHeating, annualHeating, heatingKwh: kwh,
     heatingEuroPerKwh: listing.propertyType === "land" ? null : euroKwh, monthlyCondoFee, monthlyGroundRent, monthlyTotal,
     monthlyPartial, grossYield, benchmark, benchmarkDeltaPct, subscores: normalized, score, verdict, flags,

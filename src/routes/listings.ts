@@ -367,7 +367,13 @@ export async function listingsRoute(app: FastifyInstance) {
       now: new Date(),
     });
     const bodenrichtwert = bodenrichtwertView(row);
-    const analysis = analyze(analysed, model, { bodenrichtwert: asBodenrichtwert(bodenrichtwert), districtSaleBand });
+    const analysis = analyze(analysed, model, {
+      bodenrichtwert: asBodenrichtwert(bodenrichtwert),
+      districtSaleBand,
+      findings: findings.items,
+      heatingReplacedYear: findings.heatingReplacedYear,
+      history: priceHistory,
+    });
     const everyone = app.db
       .select()
       .from(listings)
