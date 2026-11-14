@@ -39,7 +39,7 @@ export type Analysis = {
   heatingEuroPerKwh: number | null;
   monthlyCondoFee: number | null;
   monthlyGroundRent: number | null;
-  /** House or multi-family house you buy, from living area and building age. Null for anything else, and when the area is unknown. */
+  /** House or multi-family house you buy, from living area and building age. Null for anything else, when the area is unknown, and when the exposé states a Hausgeld, which already covers it. */
   monthlyMaintenance: number | null;
   monthlyPropertyTax: number | null;
   monthlyInsurance: number | null;
@@ -292,20 +292,24 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   const monthlyHeating = annualHeating != null ? roundEuro(annualHeating / 12) : null;
   const monthlyCondoFee = listing.condoFeeEur != null ? roundEuro(listing.condoFeeEur) : listing.propertyType === "house" || listing.propertyType === "multi" ? 0 : null;
   const monthlyGroundRent = listing.leasehold ? roundEuro(listing.groundRentEur ?? 0) : 0;
-  // A flat's Hausgeld covers upkeep and insurance. A house you own has no Hausgeld, so these stand in for it.
+  // A flat's Hausgeld covers upkeep and insurance. A house you own has none, so these stand in for it.
+  // A house in a WEG (a terraced house, say) does state a Hausgeld. That already holds the reserve and the building
+  // insurance, so only the Grundsteuer, which the Hausgeld never contains, is added.
   // Without a living area they are unknown, so the total stays partial. They are never counted as 0.
   const ownsBuilding = buy && (listing.propertyType === "house" || listing.propertyType === "multi");
+  const ownsUpkeep = ownsBuilding && listing.condoFeeEur == null;
   const upkeepFactor = upkeepAgeFactor(listing, market.nowYear ?? new Date().getFullYear());
   const hasLiving = living != null && living > 0;
-  const monthlyMaintenance = ownsBuilding && hasLiving ? roundEuro((assumptions.maintenanceEurPerM2Year * upkeepFactor * living) / 12) : null;
-  const monthlyInsurance = ownsBuilding && hasLiving ? roundEuro((assumptions.insuranceEurPerM2Year * living) / 12) : null;
+  const monthlyMaintenance = ownsUpkeep && hasLiving ? roundEuro((assumptions.maintenanceEurPerM2Year * upkeepFactor * living) / 12) : null;
+  const monthlyInsurance = ownsUpkeep && hasLiving ? roundEuro((assumptions.insuranceEurPerM2Year * living) / 12) : null;
   const monthlyPropertyTax = ownsBuilding ? roundEuro(assumptions.propertyTaxEurYear / 12) : null;
   const monthlyParts = [
     monthlyDebt,
     monthlyHeating,
     monthlyCondoFee,
     listing.leasehold ? monthlyGroundRent : 0,
-    ...(ownsBuilding ? [monthlyMaintenance, monthlyPropertyTax, monthlyInsurance] : []),
+    ...(ownsUpkeep ? [monthlyMaintenance, monthlyInsurance] : []),
+    ...(ownsBuilding ? [monthlyPropertyTax] : []),
   ];
   const knownMonthly = monthlyParts.filter((part): part is number => part != null);
   const monthlyPartial = knownMonthly.length ? knownMonthly.reduce((sum, part) => sum + part, 0) : null;

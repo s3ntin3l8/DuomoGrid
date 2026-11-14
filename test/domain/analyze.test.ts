@@ -508,6 +508,24 @@ describe("upkeep of a house you own", () => {
     expect([rent.monthlyMaintenance, rent.monthlyPropertyTax, rent.monthlyInsurance]).toEqual([null, null, null]);
   });
 
+  it("does not add upkeep and insurance on top of a stated Hausgeld, but still adds property tax", () => {
+    const without = analyze(house, assumptions, context);
+    for (const propertyType of ["house", "multi"] as const) {
+      const wohnung = analyze({ ...house, propertyType, condoFeeEur: 250 }, assumptions, context);
+      expect(wohnung.monthlyCondoFee).toBe(250);
+      expect(wohnung.monthlyMaintenance).toBeNull();
+      expect(wohnung.monthlyInsurance).toBeNull();
+      expect(wohnung.monthlyPropertyTax).toBe(38);
+      expect(wohnung.monthlyTotal).toBe((wohnung.monthlyDebt ?? 0) + (wohnung.monthlyHeating ?? 0) + 250 + 38);
+      // Against the same house with no Hausgeld: it swaps 163 + 29 for the stated 250.
+      expect((wohnung.monthlyTotal ?? 0) - (without.monthlyTotal ?? 0)).toBe(250 - 163 - 29);
+    }
+    // The Hausgeld still counts when the living area is unknown. Heating needs the area, so the total stays open.
+    const noArea = analyze({ ...house, livingAreaM2: null, condoFeeEur: 250 }, assumptions, context);
+    expect(noArea.monthlyTotal).toBeNull(); // heating needs the area
+    expect(noArea.monthlyPartial).toBe((noArea.monthlyDebt ?? 0) + 250 + 38);
+  });
+
   it("follows the assumptions", () => {
     const result = analyze(house, { ...assumptions, maintenanceEurPerM2Year: 0, propertyTaxEurYear: 0, insuranceEurPerM2Year: 0 }, context);
     expect([result.monthlyMaintenance, result.monthlyPropertyTax, result.monthlyInsurance]).toEqual([0, 0, 0]);

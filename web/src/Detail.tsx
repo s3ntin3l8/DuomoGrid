@@ -149,9 +149,9 @@ export function Detail({
             {listing.leasehold ? <Line label="Ground rent" value={eur(analysis.monthlyGroundRent)} /> : null}
             {buy && (listing.propertyType === "house" || listing.propertyType === "multi") ? (
               <>
-                <Line label="Maintenance" value={eur(analysis.monthlyMaintenance)} />
+                {listing.condoFeeEur == null ? <Line label="Maintenance" value={eur(analysis.monthlyMaintenance)} /> : null}
                 <Line label="Property tax" value={eur(analysis.monthlyPropertyTax)} />
-                <Line label="Insurance" value={eur(analysis.monthlyInsurance)} />
+                {listing.condoFeeEur == null ? <Line label="Insurance" value={eur(analysis.monthlyInsurance)} /> : null}
               </>
             ) : null}
             <Line label={analysis.monthlyTotal != null ? "Total" : "Known so far"} value={eur(analysis.monthlyTotal ?? analysis.monthlyPartial)} total />
