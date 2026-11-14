@@ -17,17 +17,16 @@ import {
 import { AssumptionsForm } from "./Assumptions";
 import { Compare } from "./Compare";
 import { Detail } from "./Detail";
-import { eur, perM2Text, priceMove, priceMoveText, statusLabel } from "./format";
+import { eur, historyText, historyTone, perM2Text, statusLabel } from "./format";
 
 const ListingMap = lazy(() => import("./Map").then((mod) => ({ default: mod.ListingMap })));
 
 function PriceMove({ row }: { row: DeskListing }) {
   const buy = row.listing.offer === "buy";
   const figure = perM2Text(buy, buy ? row.analysis.pricePerLivingM2 : row.analysis.rentPerM2);
-  const moved = priceMoveText(priceMove(row.observations));
-  const text = [figure, moved].filter(Boolean).join(" · ");
+  const text = [figure, historyText(row.priceHistory)].filter(Boolean).join(" · ");
   if (!text) return null;
-  const tone = moved == null ? undefined : moved.includes("−") ? "down" : "up";
+  const tone = historyTone(row.priceHistory);
   return <small className={tone ? `per ${tone}` : "per"}>{text}</small>;
 }
 

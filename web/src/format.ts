@@ -21,13 +21,6 @@ export function area(value: number | null | undefined): string {
   return `${num(value, value % 1 === 0 ? 0 : 1)} m²`;
 }
 
-export function priceMove(observations: { priceEur: number | null }[]): number | null {
-  const current = observations[0]?.priceEur;
-  const previous = observations[1]?.priceEur;
-  if (current == null || previous == null || !(previous > 0) || current === previous) return null;
-  return ((current - previous) / previous) * 100;
-}
-
 export function moveLabel(change: number | null): string | null {
   if (change == null || !Number.isFinite(change)) return null;
   const rounded = Math.round(Math.abs(change)) * Math.sign(change);
@@ -40,9 +33,26 @@ export function perM2Text(buy: boolean, perM2: number | null | undefined): strin
   return `${eur(perM2, buy ? 0 : 2)} / m²`;
 }
 
-export function priceMoveText(change: number | null): string | null {
-  const label = moveLabel(change);
-  return label == null ? null : `price ${label}`;
+export type DeskHistory = {
+  totalChangePct: number | null;
+  reductions: number;
+  startedBasis: "portal" | "saved";
+  daysOnMarket: number;
+};
+
+/** "−3% · 2 cuts · 45 d online" for a list row. The time is shown only when the portal gave the date. */
+export function historyText(history: DeskHistory): string | null {
+  const change = moveLabel(history.totalChangePct);
+  const cuts = history.reductions > 0 ? `${history.reductions} ${history.reductions === 1 ? "cut" : "cuts"}` : null;
+  const online = history.startedBasis === "portal" ? `${history.daysOnMarket} d online` : null;
+  const text = [change, cuts, online].filter(Boolean).join(" · ");
+  return text || null;
+}
+
+export function historyTone(history: DeskHistory): "down" | "up" | undefined {
+  const change = history.totalChangePct;
+  if (change == null || Math.round(Math.abs(change)) === 0) return undefined;
+  return change < 0 ? "down" : "up";
 }
 
 export function when(iso: string): string {

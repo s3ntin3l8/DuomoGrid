@@ -5,6 +5,7 @@ import { normalizeAssumptions } from "../domain/assumptions.js";
 import { analyze } from "../domain/analyze.js";
 import { cohortSummary, rentAgainstBuy, type CohortRow } from "../domain/compare.js";
 import { describeFindings, type DescriptionFindings } from "../domain/describe.js";
+import { priceHistoryOf } from "../domain/history.js";
 import { exactPoint, parseIngest, type ExtraKey } from "../domain/ingest.js";
 import { districtSaleBandFor } from "../domain/district-band.js";
 import { fetchBodenrichtwert, type Bodenrichtwert } from "../domain/bodenrichtwert.js";
@@ -276,7 +277,7 @@ function withoutLongText(body: unknown): unknown {
  * Columns for the fields added after the first extension release. A save that lacks a key keeps the stored value,
  * so an extension that predates the field never blanks it. A save that carries the key, even as null, replaces it.
  */
-function extras(listing: ListingInput, provided: ReadonlySet<ExtraKey>, existing: ListingRow | undefined) {
+function extras(listing: ListingInput, provided: ReadonlySet<ExtraKey>, existing: ListingRow | undefined, takeEarlier: boolean) {
   const pick = <T>(key: ExtraKey, next: T, kept: T): T => (provided.has(key) || !existing ? next : kept);
   return {
     heatingSystem: pick("heatingSystem", listing.heatingSystem, existing?.heatingSystem ?? null),
@@ -288,7 +289,10 @@ function extras(listing: ListingInput, provided: ReadonlySet<ExtraKey>, existing
     bedrooms: pick("bedrooms", listing.bedrooms, existing?.bedrooms ?? null),
     availableFrom: pick("availableFrom", listing.availableFrom, existing?.availableFrom ?? null),
     listedAt: pick("listedAt", listing.listedAt, existing?.listedAt ?? null),
-    portalPreviousPriceEur: pick("portalPreviousPriceEur", listing.portalPreviousPriceEur, existing?.portalPreviousPriceEur ?? null),
+    // The portal's earlier price moves on with every cut. It only means "before this desk saw it" when it arrives with the
+    // first sighting, so a later one is ignored: it is either already saved as an observation or cannot be placed.
+    // The first one reported is kept.
+    portalPreviousPriceEur: existing?.portalPreviousPriceEur ?? (takeEarlier ? listing.portalPreviousPriceEur : null),
     portalMarketEurPerM2: pick("portalMarketEurPerM2", listing.portalMarketEurPerM2, existing?.portalMarketEurPerM2 ?? null),
     portalMarketLowEurPerM2: pick("portalMarketLowEurPerM2", listing.portalMarketLowEurPerM2, existing?.portalMarketLowEurPerM2 ?? null),
     portalMarketHighEurPerM2: pick("portalMarketHighEurPerM2", listing.portalMarketHighEurPerM2, existing?.portalMarketHighEurPerM2 ?? null),
@@ -311,6 +315,11 @@ export async function listingsRoute(app: FastifyInstance) {
     }
   }
 
+  /** How many prices this desk has seen. A row without a price is not one. */
+  function pricesSeen(listingId: string): number {
+    return app.db.select().from(observations).where(eq(observations.listingId, listingId)).all().filter((row) => row.priceEur != null).length;
+  }
+
   function prices(): Map<string, number | null> {
     const map = new Map<string, number | null>();
     const rows = app.db.select().from(observations).orderBy(desc(observations.seenAt)).all();
@@ -320,12 +329,13 @@ export async function listingsRoute(app: FastifyInstance) {
     return map;
   }
 
+  /** Every observation of every listing, newest first. The list response caps what it sends; the history does not. */
   function history(): Map<string, { seenAt: string; priceEur: number | null }[]> {
     const map = new Map<string, { seenAt: string; priceEur: number | null }[]>();
     const rows = app.db.select().from(observations).orderBy(desc(observations.seenAt)).all();
     for (const row of rows) {
       const list = map.get(row.listingId) ?? [];
-      if (list.length < 12) list.push({ seenAt: row.seenAt, priceEur: row.priceEur });
+      list.push({ seenAt: row.seenAt, priceEur: row.priceEur });
       map.set(row.listingId, list);
     }
     return map;
@@ -348,6 +358,14 @@ export async function listingsRoute(app: FastifyInstance) {
       district: row.district,
       state: row.state,
     });
+    const allObservations = past.get(row.id) ?? [];
+    const priceHistory = priceHistoryOf({
+      observations: allObservations,
+      portalPreviousPriceEur: row.portalPreviousPriceEur,
+      listedAt: row.listedAt,
+      createdAt: row.createdAt,
+      now: new Date(),
+    });
     const bodenrichtwert = bodenrichtwertView(row);
     const analysis = analyze(analysed, model, { bodenrichtwert: asBodenrichtwert(bodenrichtwert), districtSaleBand });
     const everyone = app.db
@@ -366,7 +384,8 @@ export async function listingsRoute(app: FastifyInstance) {
       coverUrl: input.images.find((image) => image.kind === "photo")?.url ?? null,
       descriptionFindings: full ? findings : null,
       analysis,
-      observations: past.get(row.id) ?? [],
+      observations: full ? allObservations : allObservations.slice(0, 12),
+      priceHistory,
       cohort: cohortSummary(subject, everyone),
       rentComparison: rentAgainstBuy({ ...subject, monthlyCarryingEur: analysis.monthlyTotal }, everyone),
       bodenrichtwert,
@@ -529,9 +548,10 @@ export async function listingsRoute(app: FastifyInstance) {
     return { deleted: true };
   });
 
-  app.post("/listings", async (request, reply) => {
+  app.post<{ Querystring: { updateOnly?: string } }>("/listings", async (request, reply) => {
     const parsed = parseIngest(request.body);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    const updateOnly = request.query.updateOnly === "1" || request.query.updateOnly === "true";
     const listing = parsed.listing;
     const provided = parsed.provided;
     const now = new Date().toISOString();
@@ -540,6 +560,45 @@ export async function listingsRoute(app: FastifyInstance) {
       if (listing.externalId && row.externalId === listing.externalId && row.source === listing.source) return true;
       return Boolean(listing.sourceUrl && listing.sourceUrl.length > 8 && row.sourceUrl === listing.sourceUrl);
     });
+    // Opening an exposé must never save it. Auto-update only refreshes a listing that is already saved.
+    if (updateOnly && !existing) return reply.code(204).send();
+    if (updateOnly && existing) {
+      // Auto-update is a price check. It writes what a price check learns and nothing else, so it can neither erase a
+      // value a half-loaded page failed to read nor undo a correction the user made by hand.
+      const known = prices().get(existing.id) ?? null;
+      const seen = listing.priceEur;
+      const priceChanged = seen != null && seen > 0 && known !== seen;
+      const listedAt = listing.listedAt ?? existing.listedAt;
+      const earlier = existing.portalPreviousPriceEur ?? (pricesSeen(existing.id) <= 1 ? listing.portalPreviousPriceEur : null);
+      if (priceChanged || listedAt !== existing.listedAt || earlier !== existing.portalPreviousPriceEur) {
+        app.db.transaction((tx) => {
+          tx.update(listings)
+            .set({
+              listedAt,
+              portalPreviousPriceEur: earlier,
+              // A rental's price is its cold rent, and analysis reads the column.
+              ...(priceChanged && existing.offer === "rent" ? { coldRentEur: seen } : {}),
+              updatedAt: now,
+            })
+            .where(eq(listings.id, existing.id))
+            .run();
+          if (!priceChanged) return;
+          tx.insert(observations).values({
+            listingId: existing.id,
+            seenAt: now,
+            priceEur: seen,
+            coldRentEur: existing.offer === "rent" ? seen : existing.coldRentEur,
+            warmRentEur: existing.warmRentEur,
+            condoFeeEur: existing.condoFeeEur,
+            rawJson: JSON.stringify(withoutLongText(request.body)),
+          }).run();
+        });
+      }
+      const refreshed = app.db.select().from(listings).where(eq(listings.id, existing.id)).all()[0];
+      const fresh = context();
+      reply.code(200);
+      return { created: false, ...present(refreshed, fresh.priceMap, fresh.past, fresh.model) };
+    }
     const id = existing?.id ?? crypto.randomUUID();
     const incoming = listing.latitude != null && listing.longitude != null;
     // An approximate point from the portal never replaces a stored exact one (dragged or corrected by hand).
@@ -589,7 +648,7 @@ export async function listingsRoute(app: FastifyInstance) {
       groundRentEur: listing.groundRentEur,
       monument: listing.monument,
       tenantOccupied: listing.tenantOccupied,
-      ...extras(listing, provided, existing),
+      ...extras(listing, provided, existing, !existing || pricesSeen(existing.id) <= 1),
       ...brw,
       notes: existing?.notes ?? "",
       status: existing?.status ?? "open",

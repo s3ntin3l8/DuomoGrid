@@ -45,7 +45,8 @@ async function readTab(tabId) {
 }
 
 async function init() {
-  const stored = await chrome.storage.sync.get(["apiUrl", "ingestToken"]);
+  const stored = await chrome.storage.sync.get(["apiUrl", "ingestToken", "autoUpdate"]);
+  document.querySelector("#auto").checked = Boolean(stored.autoUpdate);
   document.querySelector("#url").value = stored.apiUrl || "http://127.0.0.1:3000";
   document.querySelector("#token").value = stored.ingestToken || "";
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -72,6 +73,9 @@ async function remember() {
   return { apiUrl, ingestToken };
 }
 
+document.querySelector("#auto").addEventListener("change", (event) => {
+  void chrome.storage.sync.set({ autoUpdate: event.target.checked });
+});
 document.querySelector("#url").addEventListener("change", () => {
   void remember();
 });
