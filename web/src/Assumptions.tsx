@@ -37,6 +37,7 @@ export function AssumptionsForm({
         ) : (
           <Field label="Equity, euro" value={draft.equityEur} onChange={(value) => value != null && set("equityEur", value)} />
         )}
+        <Field label="Fixed-rate period, years" value={draft.fixedYears} onChange={(value) => value != null && set("fixedYears", value)} />
         <div className="pair">
           <Field label="Interest, percent" value={draft.interestPercent} step="0.01" onChange={(value) => value != null && set("interestPercent", value)} />
           <Field label="Term, years" value={draft.termYears} onChange={(value) => value != null && set("termYears", value)} />

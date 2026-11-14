@@ -25,15 +25,20 @@ function perM2(row: CohortRow): number | null {
   return money / row.livingAreaM2;
 }
 
-function similar(subject: CohortRow, other: CohortRow): boolean {
-  if (other.offer !== subject.offer) return false;
-  if (fold(other.city) !== fold(subject.city) || !fold(subject.city)) return false;
-  if (other.propertyType !== subject.propertyType) return false;
+/** Within 0.7 to 1.3 times the living area. An unknown area on either side does not rule a row out. */
+function similarArea(subject: CohortRow, other: CohortRow): boolean {
   if (subject.livingAreaM2 != null && other.livingAreaM2 != null && subject.livingAreaM2 > 0) {
     const ratio = other.livingAreaM2 / subject.livingAreaM2;
     if (ratio < 0.7 || ratio > 1.3) return false;
   }
   return true;
+}
+
+function similar(subject: CohortRow, other: CohortRow): boolean {
+  if (other.offer !== subject.offer) return false;
+  if (fold(other.city) !== fold(subject.city) || !fold(subject.city)) return false;
+  if (other.propertyType !== subject.propertyType) return false;
+  return similarArea(subject, other);
 }
 
 export function cohortSummary(subject: CohortRow, rows: CohortRow[]) {
@@ -55,7 +60,7 @@ export type PurchaseSnapshot = {
 
 export function rentAgainstBuy(subject: CohortRow & { purchase: PurchaseSnapshot | null }, rows: CohortRow[], assumptions: Assumptions) {
   if (subject.offer !== "buy") return null;
-  const rents = rows.filter((row) => row.offer === "rent" && fold(row.city) === fold(subject.city) && row.propertyType === subject.propertyType);
+  const rents = rows.filter((row) => row.offer === "rent" && fold(row.city) === fold(subject.city) && row.propertyType === subject.propertyType && similarArea(subject, row));
   const cold = rents.map((row) => row.coldRentEur).filter((value): value is number => value != null && value > 0);
   const medianColdRentEur = median(cold);
   const horizon =

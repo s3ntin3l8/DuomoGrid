@@ -76,6 +76,41 @@ describe("rentVsBuy", () => {
     expect(result?.remainingDebtEur).toBe(0);
   });
 
+  it("keeps the monthly amount fixed past the end of the loan: the buyer invests the payment that is freed", () => {
+    // A 120000 loan at 0 percent over 10 years is 1000 a month. Running costs 100, rent 1200, nothing earns or grows.
+    const result = rentVsBuy({ ...flat, purchasePriceEur: 200000, equityPaidEur: 80000, loanEur: 120000, termYears: 10, horizonYears: 15, runningMonthlyEur: 100, coldRentEur: 1200 });
+    // Both spend 1100 a month. The buyer holds the home, no debt, and 60 months of the freed 1000: 260000.
+    expect(result?.netWealthBuyEur).toBe(260000);
+    // The renter starts with 80000 and spends 100 more than the 1100 every month for 180 months: 80000 - 18000.
+    expect(result?.netWealthRentEur).toBe(62000);
+    expect(result?.buyAdvantageEur).toBe(198000);
+    expect(result?.remainingDebtEur).toBe(0);
+  });
+
+  it("never gives the renter a negative portfolio just because the horizon is longer than the loan", () => {
+    const longer = rentVsBuy({ ...flat, purchasePriceEur: 400000, closingCostsEur: 45000, equityPaidEur: 124000, loanEur: 321000, interestPercent: 3.6, termYears: 25, horizonYears: 40, runningMonthlyEur: 350, coldRentEur: 1500, equityReturnPercent: 3 });
+    expect(longer?.netWealthRentEur ?? -1).toBeGreaterThan(0);
+  });
+
+  it("counts months, not the stated years, for the home's value", () => {
+    // 2.51 years is 30 months.
+    expect(rentVsBuy({ ...flat, appreciationPercent: 2, horizonYears: 2.51 })?.homeValueEur).toBe(Math.round(200000 * 1.02 ** 2.5));
+  });
+
+  it("is null instead of a wrong number when a rate makes the compounding meaningless", () => {
+    expect(rentVsBuy({ ...flat, equityReturnPercent: -150 })).toBeNull();
+    expect(rentVsBuy({ ...flat, appreciationPercent: -150 })).toBeNull();
+    expect(rentVsBuy({ ...flat, rentGrowthPercent: -100 })).toBeNull();
+    expect(rentVsBuy({ ...flat, equityReturnPercent: 1e9 })).toBeNull();
+    expect(rentVsBuy({ ...flat, appreciationPercent: -99 })).not.toBeNull();
+  });
+
+  it("does not simulate more than 50 years", () => {
+    expect(rentVsBuy({ ...flat, horizonYears: 50 })).not.toBeNull();
+    expect(rentVsBuy({ ...flat, horizonYears: 50.5 })).toBeNull();
+    expect(rentVsBuy({ ...flat, horizonYears: 1e9 })).toBeNull();
+  });
+
   it("is null for a horizon that is not positive, a missing rent or a non-finite figure", () => {
     expect(rentVsBuy({ ...flat, horizonYears: 0 })).toBeNull();
     expect(rentVsBuy({ ...flat, coldRentEur: 0 })).toBeNull();
@@ -83,7 +118,7 @@ describe("rentVsBuy", () => {
   });
 });
 
-const rental = (coldRentEur: number | null, city = "Darmstadt", propertyType = "apartment"): CohortRow => ({ offer: "rent", city, propertyType, livingAreaM2: 70, priceEur: coldRentEur, coldRentEur });
+const rental = (coldRentEur: number | null, city = "Darmstadt", propertyType = "apartment", livingAreaM2: number | null = 70): CohortRow => ({ offer: "rent", city, propertyType, livingAreaM2, priceEur: coldRentEur, coldRentEur });
 const subject = (purchase: PurchaseSnapshot | null) => ({ offer: "buy" as const, city: "Darmstadt", propertyType: "apartment", livingAreaM2: 80, priceEur: 300000, coldRentEur: null, purchase });
 const purchase: PurchaseSnapshot = { purchasePriceEur: 300000, closingCostsEur: 35000, equityPaidEur: 70000, loanEur: 265000, runningMonthlyEur: 300 };
 
@@ -94,6 +129,16 @@ describe("rentAgainstBuy", () => {
     expect(result?.medianColdRentEur).toBe(1400);
     expect(result?.horizon?.horizonYears).toBe(10);
     expect(result?.horizon?.averageRentMonthlyEur).toBeGreaterThan(1400);
+  });
+
+  it("compares only with rentals of a similar size, and keeps one with an unknown area", () => {
+    // The subject has 80 m2: 56 to 104 m2 is similar.
+    const rows = [rental(700, "Darmstadt", "apartment", 35), rental(1200, "Darmstadt", "apartment", 70), rental(1600, "Darmstadt", "apartment", 90), rental(3000, "Darmstadt", "apartment", 110), rental(1400, "Darmstadt", "apartment", null)];
+    const result = rentAgainstBuy(subject(purchase), rows, DEFAULT_ASSUMPTIONS);
+    expect(result?.rentCount).toBe(3);
+    expect(result?.medianColdRentEur).toBe(1400);
+    // Nothing of a similar size: no sample, so no horizon, rather than a rent from a different home.
+    expect(rentAgainstBuy(subject(purchase), [rental(700, "Darmstadt", "apartment", 35)], DEFAULT_ASSUMPTIONS)).toEqual({ rentCount: 0, medianColdRentEur: null, horizon: null });
   });
 
   it("reads the assumptions", () => {
@@ -118,6 +163,19 @@ describe("normalizeAssumptions rent or buy", () => {
     expect([old.horizonYears, old.equityReturnPercent, old.appreciationPercent, old.rentGrowthPercent]).toEqual([10, 3, 1.5, 2]);
     const falling = normalizeAssumptions({ horizonYears: "15", equityReturnPercent: 0, appreciationPercent: -1, rentGrowthPercent: "0" });
     expect([falling.horizonYears, falling.equityReturnPercent, falling.appreciationPercent, falling.rentGrowthPercent]).toEqual([15, 0, -1, 0]);
+  });
+
+  it("caps the horizon at 50 years and refuses rates of -100 percent or less", () => {
+    expect(normalizeAssumptions({ horizonYears: 1000000 }).horizonYears).toBe(50);
+    expect(normalizeAssumptions({ horizonYears: 50 }).horizonYears).toBe(50);
+    const bad = normalizeAssumptions({ equityReturnPercent: -100, appreciationPercent: -250, rentGrowthPercent: 1e9 });
+    expect([bad.equityReturnPercent, bad.appreciationPercent, bad.rentGrowthPercent]).toEqual([3, 1.5, 2]);
+    expect(normalizeAssumptions({ appreciationPercent: -99 }).appreciationPercent).toBe(-99);
+  });
+
+  it("falls back to the default for a loan term that is not positive", () => {
+    for (const value of [0, -30, "x"]) expect(normalizeAssumptions({ termYears: value }).termYears).toBe(30);
+    expect(normalizeAssumptions({ termYears: 25 }).termYears).toBe(25);
   });
 
   it("falls back to the default for a horizon that is not positive", () => {

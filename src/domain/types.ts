@@ -113,6 +113,8 @@ export type Assumptions = {
   equityEur: number;
   interestPercent: number;
   termYears: number;
+  /** Years the interest rate is fixed (Zinsbindung). After that the rest of the loan is refinanced at another rate. */
+  fixedYears: number;
   notaryPercent: number;
   registerPercent: number;
   fallbackCommissionPercent: number;
@@ -141,6 +143,7 @@ export const DEFAULT_ASSUMPTIONS: Assumptions = {
   equityEur: 100000,
   interestPercent: 3.6,
   termYears: 30,
+  fixedYears: 10,
   notaryPercent: 1.5,
   registerPercent: 0.5,
   fallbackCommissionPercent: 3.57,

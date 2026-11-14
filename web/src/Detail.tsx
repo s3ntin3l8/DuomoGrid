@@ -127,6 +127,11 @@ export function Detail({
               <Line label="Cash to close" value={eur(analysis.cashToCloseEur)} total />
               <Line label="Equity" value={eur(analysis.equityEur)} />
               <Line label="Loan" value={eur(analysis.loanEur)} />
+              {analysis.remainingDebtEur != null ? (
+                <Line label={`Still owed after ${num(analysis.fixedYears, Number.isInteger(analysis.fixedYears) ? 0 : 1)} years`} value={eur(analysis.remainingDebtEur)} />
+              ) : null}
+              {analysis.refinanceMonthlyPlus1Eur != null ? <Line label="Then, rate +1 point" value={`${eur(analysis.refinanceMonthlyPlus1Eur)} / month`} /> : null}
+              {analysis.refinanceMonthlyPlus2Eur != null ? <Line label="Then, rate +2 points" value={`${eur(analysis.refinanceMonthlyPlus2Eur)} / month`} /> : null}
             </dl>
           </section>
         ) : (
@@ -405,9 +410,9 @@ function Cohort({ row }: { row: DeskListing }) {
       </p>
       {rentComparison && rentComparison.rentCount > 0 && rentComparison.medianColdRentEur != null ? (
         <p className="note">
-          Saved rentals nearby ask about {eur(rentComparison.medianColdRentEur)} cold.
+          Saved rentals nearby of a similar size ask about {eur(rentComparison.medianColdRentEur)} cold.
           {rentComparison.horizon
-            ? ` Over ${num(rentComparison.horizon.horizonYears)} years, buying costs about ${eur(rentComparison.horizon.unrecoverableBuyMonthlyEur)} a month that you do not get back (interest, upkeep, purchase costs and what your equity would have earned), against rent averaging ${eur(rentComparison.horizon.averageRentMonthlyEur)}. Net wealth after that time: ${eur(rentComparison.horizon.netWealthBuyEur)} buying, ${eur(rentComparison.horizon.netWealthRentEur)} renting and investing the difference, so buying ends ${eur(Math.abs(rentComparison.horizon.buyAdvantageEur))} ${rentComparison.horizon.buyAdvantageEur >= 0 ? "ahead" : "behind"}. This depends on the price, return and rent assumptions, and leaves out selling costs.`
+            ? ` Over ${num(rentComparison.horizon.horizonYears)} years, buying costs about ${eur(rentComparison.horizon.unrecoverableBuyMonthlyEur)} a month that you do not get back (interest, upkeep, purchase costs and what your equity would have earned), against rent averaging ${eur(rentComparison.horizon.averageRentMonthlyEur)} (before any change in the home's price). Net wealth after that time: ${eur(rentComparison.horizon.netWealthBuyEur)} buying, ${eur(rentComparison.horizon.netWealthRentEur)} renting and investing the difference, so buying ends ${eur(Math.abs(rentComparison.horizon.buyAdvantageEur))} ${rentComparison.horizon.buyAdvantageEur >= 0 ? "ahead" : "behind"}. This depends on the price, return and rent assumptions. It leaves out selling costs, counts the whole Hausgeld although a renter pays operating costs too, and holds your running costs flat while the rent rises.`
             : " The cost of owning is incomplete, so there is no comparison."}
         </p>
       ) : null}
