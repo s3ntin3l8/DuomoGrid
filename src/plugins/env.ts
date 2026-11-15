@@ -50,6 +50,23 @@ const schema = {
       type: "string",
       default: "",
     },
+    AI_PROVIDER: {
+      type: "string",
+      default: "none",
+      enum: ["none", "openai", "anthropic"],
+    },
+    AI_BASE_URL: {
+      type: "string",
+      default: "",
+    },
+    AI_API_KEY: {
+      type: "string",
+      default: "",
+    },
+    AI_MODEL: {
+      type: "string",
+      default: "",
+    },
   },
 };
 
@@ -142,6 +159,10 @@ declare module "fastify" {
       RATE_LIMIT_WINDOW: string;
       INGEST_TOKEN: string;
       TRUSTED_AUTH_HEADER: string;
+      AI_PROVIDER: "none" | "openai" | "anthropic";
+      AI_BASE_URL: string;
+      AI_API_KEY: string;
+      AI_MODEL: string;
     };
     /**
      * Address list passed to Fastify as `trustProxy`, or null when that option

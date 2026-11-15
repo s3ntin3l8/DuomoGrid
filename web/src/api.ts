@@ -97,6 +97,9 @@ export type DeskListing = {
     items: { key: string; label: string; snippet: string; year?: number; amountEur?: number }[];
     renovatedYear: number | null;
     heatingReplacedYear: number | null;
+    filledFields?: string[];
+    source?: "regex" | "llm";
+    model?: string | null;
   } | null;
   analysis: {
     pricePerLivingM2: number | null;
@@ -285,5 +288,89 @@ export function saveAssumptions(token: string, assumptions: Assumptions) {
   return request<{ assumptions: Assumptions; states: StateOption[] }>(token, "/assumptions", {
     method: "PUT",
     body: JSON.stringify(assumptions),
+  });
+}
+
+export type AiProvider = "none" | "openai" | "anthropic";
+
+export type AiSettingsPublic = {
+  provider: AiProvider;
+  baseUrl: string;
+  model: string;
+  autoExtractOnSave: boolean;
+  hasApiKey: boolean;
+  apiKeyPreview: string | null;
+  apiKeySource?: "db" | "env" | "none";
+  configured: boolean;
+  encryptionEnabled?: boolean;
+};
+
+export type AiSettingsUpdate = {
+  provider?: AiProvider;
+  baseUrl?: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
+  model?: string;
+  autoExtractOnSave?: boolean;
+};
+
+export type DueDiligenceInquiry = {
+  checklist: {
+    key: string;
+    title: string;
+    whyEnglish: string;
+    questionGerman: string;
+  }[];
+  messageGerman: string;
+  source: "deterministic" | "llm";
+  model?: string | null;
+};
+
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChatResponse = {
+  reply: string;
+  toolCalls: { name: string; args: Record<string, unknown>; summary: string }[];
+};
+
+export function loadAiSettings(token: string) {
+  return request<AiSettingsPublic>(token, "/ai/settings");
+}
+
+export function saveAiSettings(token: string, body: AiSettingsUpdate) {
+  return request<AiSettingsPublic>(token, "/ai/settings", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function testAiConnection(token: string, body?: AiSettingsUpdate) {
+  return request<{ ok: boolean; model: string; latencyMs: number; error?: string }>(token, "/ai/test", {
+    method: "POST",
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+export function extractListingWithAi(token: string, id: string) {
+  return request<DeskListing>(token, `/ai/extract/${id}`, { method: "POST" });
+}
+
+export function loadListingInquiry(token: string, id: string, useLlm = false) {
+  return request<DueDiligenceInquiry>(token, `/ai/inquiry/${id}`, {
+    method: "POST",
+    body: JSON.stringify({ useLlm }),
+  });
+}
+
+export function sendChatMessage(
+  token: string,
+  body: { messages: ChatMessage[]; listingId?: string | null },
+) {
+  return request<ChatResponse>(token, "/ai/chat", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }

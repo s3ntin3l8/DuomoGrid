@@ -19,7 +19,8 @@
     "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "tsx src/db/seed.ts"
+    "db:seed": "tsx src/db/seed.ts",
+    "mcp": "tsx src/mcp/stdio.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.4.1",

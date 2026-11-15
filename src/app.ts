@@ -15,6 +15,8 @@ import { usersRoute } from "./routes/users.js";
 import { listingsRoute } from "./routes/listings.js";
 import { assumptionsRoute } from "./routes/assumptions.js";
 import { authRoute } from "./routes/auth.js";
+import { aiRoute } from "./routes/ai.js";
+import { mcpRoute } from "./routes/mcp.js";
 
 export async function buildApp() {
   // Fastify fixes trustProxy at construction, before the env plugin runs, so it
@@ -66,6 +68,8 @@ export async function buildApp() {
   await app.register(listingsRoute);
   await app.register(assumptionsRoute);
   await app.register(authRoute);
+  await app.register(aiRoute);
+  await app.register(mcpRoute);
 
   return app;
 }

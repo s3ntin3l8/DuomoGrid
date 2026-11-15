@@ -1,20 +1,36 @@
 import type { FastifyInstance } from "fastify";
 import { desc, eq } from "drizzle-orm";
 import { installIngestGuard } from "../auth/guard.js";
+import {
+  isAiConfigured,
+  normalizeAiSettings,
+  type AiSettings,
+} from "../domain/ai.js";
 import { normalizeAssumptions } from "../domain/assumptions.js";
 import { analyze } from "../domain/analyze.js";
 import { cohortSummary, rentAgainstBuy, type CohortRow, type PurchaseSnapshot } from "../domain/compare.js";
 import { maxOffer } from "../domain/max-offer.js";
-import { describeFindings, type DescriptionFindings } from "../domain/describe.js";
+import {
+  describeFindings,
+  descriptionDigest,
+  extractDescriptionWithLlm,
+  mergeExtractedFacts,
+  sanitizeExtractedFacts,
+  type DescriptionFindings,
+  type StoredLlmExtraction,
+} from "../domain/describe.js";
 import { priceHistoryOf } from "../domain/history.js";
 import { exactPoint, parseIngest, type ExtraKey } from "../domain/ingest.js";
 import { districtSaleBandFor } from "../domain/district-band.js";
 import { fetchBodenrichtwert, type Bodenrichtwert } from "../domain/bodenrichtwert.js";
 import { DEFAULT_ASSUMPTIONS, STATES } from "../domain/types.js";
 import type { Assumptions, DetailPair, ImageRef, ListingDescription, ListingInput, Offer, ParkingType, PropertyType, Source } from "../domain/types.js";
+import type { getDb } from "../db/client.js";
 import { listings, observations, settings } from "../db/schema.js";
+import type { EncryptionService } from "../services/encryption.js";
 
-type ListingRow = typeof listings.$inferSelect;
+export type ListingRow = typeof listings.$inferSelect;
+type DbInstance = ReturnType<typeof getDb>;
 
 function jsonOr<T>(text: string | null, fallback: T): T {
   if (!text) return fallback;
@@ -25,7 +41,7 @@ function jsonOr<T>(text: string | null, fallback: T): T {
   }
 }
 
-function asInput(row: ListingRow, priceEur: number | null): ListingInput {
+export function asInput(row: ListingRow, priceEur: number | null): ListingInput {
   let features: string[] = [];
   try {
     const parsed = JSON.parse(row.featuresJson) as unknown;
@@ -93,7 +109,7 @@ function asInput(row: ListingRow, priceEur: number | null): ListingInput {
 }
 
 /** The day-one figures the rent comparison needs. All of them or none: an unknown cost is not 0. */
-function purchaseOf(analysis: ReturnType<typeof analyze>): PurchaseSnapshot | null {
+export function purchaseOf(analysis: ReturnType<typeof analyze>): PurchaseSnapshot | null {
   const { cashToCloseEur, extraEur, loanEur, monthlyRunning } = analysis;
   if (cashToCloseEur == null || extraEur == null || loanEur == null || monthlyRunning == null) return null;
   return {
@@ -105,7 +121,7 @@ function purchaseOf(analysis: ReturnType<typeof analyze>): PurchaseSnapshot | nu
   };
 }
 
-function toCohort(row: ListingRow, priceEur: number | null): CohortRow {
+export function toCohort(row: ListingRow, priceEur: number | null): CohortRow {
   return {
     offer: row.offer as Offer,
     city: row.city,
@@ -155,7 +171,7 @@ function columnsFromHit(hit: Bodenrichtwert): BrwColumns {
   return { brwStatus: "none", brwZone: null, brwEurPerM2: null, brwStichtag: null };
 }
 
-function bodenrichtwertView(row: ListingRow) {
+export function bodenrichtwertView(row: ListingRow) {
   if (row.latitude == null || row.longitude == null) return null;
   if (row.brwStatus === "published" && row.brwZone && row.brwEurPerM2 != null && row.brwEurPerM2 > 0) {
     return { status: "published" as const, zone: row.brwZone, eurPerM2: row.brwEurPerM2, stichtag: row.brwStichtag };
@@ -167,7 +183,7 @@ function bodenrichtwertView(row: ListingRow) {
   return { status: "unknown" as const, zone: null, eurPerM2: null, stichtag: null };
 }
 
-function asBodenrichtwert(view: ReturnType<typeof bodenrichtwertView>): Bodenrichtwert | null {
+export function asBodenrichtwert(view: ReturnType<typeof bodenrichtwertView>): Bodenrichtwert | null {
   if (!view || view.status === "unknown") return null;
   if (view.status === "none") return { status: "none" };
   if (view.status === "unpublished") return { status: "unpublished", zone: view.zone, stichtag: view.stichtag };
@@ -177,7 +193,7 @@ function asBodenrichtwert(view: ReturnType<typeof bodenrichtwertView>): Bodenric
 const PROPERTY_TYPES = new Set(["apartment", "house", "land", "multi", "other"]);
 const ENERGY_CLASSES = new Set(["A+", "A", "B", "C", "D", "E", "F", "G", "H"]);
 
-type FactPatch = {
+export type FactPatch = {
   livingAreaM2?: number | null;
   plotAreaM2?: number | null;
   rooms?: number | null;
@@ -200,7 +216,7 @@ function optionalPositive(value: unknown, label: string): { ok: true; value: num
   return { ok: false, error: `${label} must be a positive number, or empty.` };
 }
 
-function readFacts(body: Record<string, unknown>): { ok: true; facts: FactPatch } | { ok: false; error: string } {
+export function readFacts(body: Record<string, unknown>): { ok: true; facts: FactPatch } | { ok: false; error: string } {
   const facts: FactPatch = {};
   if (owns(body, "livingAreaM2")) {
     const parsed = optionalPositive(body.livingAreaM2, "Living area");
@@ -270,11 +286,39 @@ function readFacts(body: Record<string, unknown>): { ok: true; facts: FactPatch 
 const findingsCache = new Map<string, DescriptionFindings>();
 const FINDINGS_CACHE_MAX = 500;
 
-function findingsFor(stored: string | null, description: ListingDescription | null): DescriptionFindings {
-  if (!stored) return describeFindings(description);
+export function findingsFor(
+  stored: string | null,
+  description: ListingDescription | null,
+  llmStoredJson: string | null = null,
+): DescriptionFindings {
+  if (stored && llmStoredJson) {
+    const digest = descriptionDigest(stored);
+    const llmKey = `${digest}:${descriptionDigest(llmStoredJson)}`;
+    const cachedLlm = findingsCache.get(llmKey);
+    if (cachedLlm) return cachedLlm;
+    try {
+      const parsed = JSON.parse(llmStoredJson) as StoredLlmExtraction;
+      if (parsed && parsed.descriptionHash === digest && Array.isArray(parsed.items)) {
+        const llmFound: DescriptionFindings = {
+          items: parsed.items,
+          renovatedYear: parsed.renovatedYear ?? null,
+          heatingReplacedYear: parsed.heatingReplacedYear ?? null,
+          extractedFacts: sanitizeExtractedFacts(parsed.extractedFacts),
+          source: "llm",
+          model: parsed.model ?? null,
+        };
+        if (findingsCache.size >= FINDINGS_CACHE_MAX) findingsCache.clear();
+        findingsCache.set(llmKey, llmFound);
+        return llmFound;
+      }
+    } catch {
+      /* ignore invalid cached JSON and fall back to regex */
+    }
+  }
+  if (!stored) return { ...describeFindings(description), source: "regex", model: null };
   const cached = findingsCache.get(stored);
   if (cached) return cached;
-  const found = describeFindings(description);
+  const found: DescriptionFindings = { ...describeFindings(description), source: "regex", model: null };
   if (findingsCache.size >= FINDINGS_CACHE_MAX) findingsCache.clear();
   findingsCache.set(stored, found);
   return found;
@@ -293,6 +337,12 @@ function withoutLongText(body: unknown): unknown {
  */
 function extras(listing: ListingInput, provided: ReadonlySet<ExtraKey>, existing: ListingRow | undefined, takeEarlier: boolean) {
   const pick = <T>(key: ExtraKey, next: T, kept: T): T => (provided.has(key) || !existing ? next : kept);
+  const nextDescriptionJson = pick(
+    "description",
+    listing.description ? JSON.stringify(listing.description) : null,
+    existing?.descriptionJson ?? null,
+  );
+  const descriptionUnchanged = existing != null && nextDescriptionJson === existing.descriptionJson;
   return {
     heatingSystem: pick("heatingSystem", listing.heatingSystem, existing?.heatingSystem ?? null),
     energySource: pick("energySource", listing.energySource, existing?.energySource ?? null),
@@ -310,17 +360,16 @@ function extras(listing: ListingInput, provided: ReadonlySet<ExtraKey>, existing
     portalMarketEurPerM2: pick("portalMarketEurPerM2", listing.portalMarketEurPerM2, existing?.portalMarketEurPerM2 ?? null),
     portalMarketLowEurPerM2: pick("portalMarketLowEurPerM2", listing.portalMarketLowEurPerM2, existing?.portalMarketLowEurPerM2 ?? null),
     portalMarketHighEurPerM2: pick("portalMarketHighEurPerM2", listing.portalMarketHighEurPerM2, existing?.portalMarketHighEurPerM2 ?? null),
-    descriptionJson: pick("description", listing.description ? JSON.stringify(listing.description) : null, existing?.descriptionJson ?? null),
+    descriptionJson: nextDescriptionJson,
     detailsJson: pick("details", listing.details.length ? JSON.stringify(listing.details) : null, existing?.detailsJson ?? null),
     imagesJson: pick("images", listing.images.length ? JSON.stringify(listing.images) : null, existing?.imagesJson ?? null),
+    llmExtractionJson: descriptionUnchanged ? (existing?.llmExtractionJson ?? null) : null,
   };
 }
 
-export async function listingsRoute(app: FastifyInstance) {
-  installIngestGuard(app, "/listings");
-
+export function createListingPresenter(db: DbInstance) {
   function assumptions(): Assumptions {
-    const row = app.db.select().from(settings).where(eq(settings.key, "assumptions")).all()[0];
+    const row = db.select().from(settings).where(eq(settings.key, "assumptions")).all()[0];
     if (!row) return DEFAULT_ASSUMPTIONS;
     try {
       return normalizeAssumptions(JSON.parse(row.value));
@@ -331,12 +380,12 @@ export async function listingsRoute(app: FastifyInstance) {
 
   /** How many prices this desk has seen. A row without a price is not one. */
   function pricesSeen(listingId: string): number {
-    return app.db.select().from(observations).where(eq(observations.listingId, listingId)).all().filter((row) => row.priceEur != null).length;
+    return db.select().from(observations).where(eq(observations.listingId, listingId)).all().filter((row) => row.priceEur != null).length;
   }
 
   function prices(): Map<string, number | null> {
     const map = new Map<string, number | null>();
-    const rows = app.db.select().from(observations).orderBy(desc(observations.seenAt)).all();
+    const rows = db.select().from(observations).orderBy(desc(observations.seenAt)).all();
     for (const row of rows) {
       if (!map.has(row.listingId)) map.set(row.listingId, row.priceEur);
     }
@@ -346,7 +395,7 @@ export async function listingsRoute(app: FastifyInstance) {
   /** Every observation of every listing, newest first. The list response caps what it sends; the history does not. */
   function history(): Map<string, { seenAt: string; priceEur: number | null }[]> {
     const map = new Map<string, { seenAt: string; priceEur: number | null }[]>();
-    const rows = app.db.select().from(observations).orderBy(desc(observations.seenAt)).all();
+    const rows = db.select().from(observations).orderBy(desc(observations.seenAt)).all();
     for (const row of rows) {
       const list = map.get(row.listingId) ?? [];
       list.push({ seenAt: row.seenAt, priceEur: row.priceEur });
@@ -359,12 +408,22 @@ export async function listingsRoute(app: FastifyInstance) {
    * `full` adds the long description, the detail pairs and the findings read from the description.
    * The list leaves them out, but analysis sees the same input either way, so a score never depends on which route asked.
    */
-  function present(row: ListingRow, priceMap: Map<string, number | null>, past: Map<string, { seenAt: string; priceEur: number | null }[]>, model: Assumptions, full = false) {
+  function present(
+    row: ListingRow,
+    priceMap: Map<string, number | null>,
+    past: Map<string, { seenAt: string; priceEur: number | null }[]>,
+    model: Assumptions,
+    full = false,
+  ) {
     const priceEur = priceMap.get(row.id) ?? null;
     const input = asInput(row, priceEur);
-    const findings = findingsFor(row.descriptionJson, input.description);
-    // A renovation year read from the text only fills a gap. A stored year always wins.
-    const analysed = { ...input, yearRefurbished: input.yearRefurbished ?? findings.renovatedYear };
+    const rawFindings = findingsFor(row.descriptionJson, input.description, row.llmExtractionJson);
+    // Facts read from the text only fill a gap. A stored value from the portal or PATCH always wins.
+    const { analysed, filledFields } = mergeExtractedFacts(input, rawFindings);
+    const findings: DescriptionFindings = {
+      ...rawFindings,
+      filledFields,
+    };
     const districtSaleBand = districtSaleBandFor({
       offer: row.offer,
       propertyType: row.propertyType,
@@ -389,7 +448,7 @@ export async function listingsRoute(app: FastifyInstance) {
       history: priceHistory,
     };
     const analysis = analyze(analysed, model, market);
-    const everyone = app.db
+    const everyone = db
       .select()
       .from(listings)
       .all()
@@ -419,6 +478,43 @@ export async function listingsRoute(app: FastifyInstance) {
   function context() {
     return { priceMap: prices(), past: history(), model: assumptions() };
   }
+
+  return {
+    assumptions,
+    pricesSeen,
+    prices,
+    history,
+    present,
+    context,
+  };
+}
+
+export function loadCurrentAiSettings(
+  db: DbInstance,
+  envConfig?: {
+    AI_PROVIDER?: string;
+    AI_BASE_URL?: string;
+    AI_API_KEY?: string;
+    AI_MODEL?: string;
+  },
+  encryption?: EncryptionService,
+): AiSettings {
+  const row = db.select().from(settings).where(eq(settings.key, "ai")).all()[0];
+  let parsed: unknown = null;
+  if (row) {
+    try {
+      parsed = JSON.parse(row.value);
+    } catch {
+      parsed = null;
+    }
+  }
+  return normalizeAiSettings(parsed, envConfig, encryption);
+}
+
+export async function listingsRoute(app: FastifyInstance) {
+  installIngestGuard(app, "/listings");
+  const presenter = createListingPresenter(app.db);
+  const { pricesSeen, prices, present, context } = presenter;
 
   const lookupInflight = new Map<string, Promise<ListingRow>>();
   const lookupFailedUntil = new Map<string, number>();
@@ -631,6 +727,7 @@ export async function listingsRoute(app: FastifyInstance) {
     const nextLatitude = located ? listing.latitude : (existing?.latitude ?? null);
     const nextLongitude = located ? listing.longitude : (existing?.longitude ?? null);
     const brw = existing && samePoint(existing.latitude, existing.longitude, nextLatitude, nextLongitude) ? keptBrw(existing) : clearedBrw();
+    const extraCols = extras(listing, provided, existing, !existing || pricesSeen(existing.id) <= 1);
     const values = {
       id,
       source: listing.source,
@@ -671,7 +768,7 @@ export async function listingsRoute(app: FastifyInstance) {
       groundRentEur: listing.groundRentEur,
       monument: listing.monument,
       tenantOccupied: listing.tenantOccupied,
-      ...extras(listing, provided, existing, !existing || pricesSeen(existing.id) <= 1),
+      ...extraCols,
       ...brw,
       notes: existing?.notes ?? "",
       status: existing?.status ?? "open",
@@ -697,6 +794,34 @@ export async function listingsRoute(app: FastifyInstance) {
       }).run();
     }
     const stored = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+    const aiSettings = loadCurrentAiSettings(app.db, app.config, app.encryption);
+    if (
+      aiSettings.autoExtractOnSave &&
+      isAiConfigured(aiSettings) &&
+      stored.descriptionJson &&
+      !stored.llmExtractionJson
+    ) {
+      const descSnapshot = stored.descriptionJson;
+      void extractDescriptionWithLlm(
+        aiSettings,
+        listing.description,
+        listing.details,
+        descSnapshot,
+      )
+        .then((extracted) => {
+          const current = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+          if (current && current.descriptionJson === descSnapshot) {
+            app.db
+              .update(listings)
+              .set({ llmExtractionJson: JSON.stringify(extracted) })
+              .where(eq(listings.id, id))
+              .run();
+          }
+        })
+        .catch((err: unknown) => {
+          app.log.warn({ err, listingId: id }, "Auto-extraction with AI failed; keeping regex fallback");
+        });
+    }
     const ctx = context();
     reply.code(existing ? 200 : 201);
     return { created: !existing, ...present(stored, ctx.priceMap, ctx.past, ctx.model) };
