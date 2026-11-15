@@ -14,14 +14,19 @@
         <p>This listing only. Nothing else is read.</p>
       </div>
     </header>
-    <label>
-      Server URL
-      <input id="url" type="url" placeholder="http://127.0.0.1:3000" autocomplete="off" />
-    </label>
-    <label>
-      Ingest token
-      <input id="token" type="password" autocomplete="off" />
-    </label>
+    <p id="paired" class="hint" hidden></p>
+    <button id="pair" type="button">Pair with this tab</button>
+    <details id="manual">
+      <summary>Enter the server by hand</summary>
+      <label>
+        Server URL
+        <input id="url" type="url" placeholder="http://127.0.0.1:3000" autocomplete="off" />
+      </label>
+      <label>
+        Ingest token
+        <input id="token" type="password" autocomplete="off" />
+      </label>
+    </details>
     <label class="check">
       <input id="auto" type="checkbox" />
       Update saved listings when I open them
@@ -37,10 +42,11 @@
       </dl>
     </section>
     <p id="status" class="status">Reading this page…</p>
+    <a id="update" class="hint" hidden target="_blank" rel="noreferrer"></a>
     <div class="actions">
       <button id="send" type="button" disabled>Save to DuomoGrid</button>
       <button id="copy" type="button" class="quiet" disabled>Copy JSON</button>
     </div>
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
   </body>
 </html>
