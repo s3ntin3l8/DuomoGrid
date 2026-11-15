@@ -77,6 +77,7 @@ describe("domain/ai", () => {
       baseUrl: "https://api.anthropic.com",
       hasApiKey: true,
       apiKeyPreview: "***...9876",
+      apiKeySource: "db", // pragma: allowlist secret
       model: "claude-3-5-sonnet-latest",
       autoExtractOnSave: true,
       configured: true,

@@ -300,6 +300,7 @@ export type AiSettingsPublic = {
   autoExtractOnSave: boolean;
   hasApiKey: boolean;
   apiKeyPreview: string | null;
+  apiKeySource?: "db" | "env" | "none";
   configured: boolean;
   encryptionEnabled?: boolean;
 };

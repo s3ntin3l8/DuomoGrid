@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AiSettingsForm } from "../../web/src/AiSettings";
 import { ChatPanel } from "../../web/src/Chat";
+import { Detail } from "../../web/src/Detail";
 import {
   extractListingWithAi,
   loadAiSettings,
@@ -203,5 +204,226 @@ describe("web AI settings, chat panel, and API helpers", () => {
     await sendChatMessage("tok", { messages: [{ role: "user", content: "hi" }], listingId: "id-1" });
 
     expect(fetchSpy).toHaveBeenCalledTimes(6);
+  });
+
+  it("renders Detail with AI extraction, Makler inquiry, and clipboard copy", async () => {
+    const sampleRow: DeskListing = {
+      id: "l-detail-1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      status: "open",
+      notes: "",
+      coverUrl: null,
+      listing: {
+        source: "immobilienscout24",
+        sourceUrl: "https://www.immobilienscout24.de/expose/1",
+        externalId: "1",
+        title: "Altbauwohnung Darmstadt",
+        offer: "buy",
+        priceEur: 450000,
+        livingAreaM2: 90,
+        plotAreaM2: null,
+        rooms: 3,
+        city: "Darmstadt",
+        district: "Mitte",
+        postalCode: "64283",
+        state: "HE",
+        street: null,
+        latitude: null,
+        longitude: null,
+        locationPrecision: null,
+        propertyType: "apartment",
+        yearBuilt: 1980,
+        yearRefurbished: 2020,
+        energyClass: "C",
+        energyKwh: 95,
+        energyCert: "Verbrauchsausweis",
+        heating: "Gas",
+        condoFeeEur: 290,
+        coldRentEur: null,
+        warmRentEur: null,
+        depositEur: null,
+        rentContract: null,
+        commissionPercent: 3.57,
+        commissionText: null,
+        condition: "Moderne Ausstattung",
+        floor: "2",
+        features: ["Balkon"],
+        snippet: "",
+        leasehold: false,
+        groundRentEur: null,
+        monument: false,
+        tenantOccupied: false,
+        heatingSystem: "Zentralheizung",
+        energySource: "Gas",
+        parkingSpaces: 1,
+        parkingType: "Tiefgarage",
+        parkingPriceEur: null,
+        bathrooms: 1,
+        bedrooms: 2,
+        availableFrom: "sofort",
+        listedAt: null,
+        portalPreviousPriceEur: null,
+        portalMarketEurPerM2: null,
+        portalMarketLowEurPerM2: null,
+        portalMarketHighEurPerM2: null,
+        description: {
+          object: "2020 modernisiert. Hausgeld 290 EUR.",
+          furnishing: null,
+          location: null,
+          other: null,
+        },
+        details: [{ label: "Hausgeld", value: "290 €" }],
+        images: [],
+      },
+      analysis: {
+        stateCode: "HE",
+        stateName: "Hesse",
+        stateFromPostal: false,
+        pricePerLivingM2: 5000,
+        rentPerM2: null,
+        parkingPriceEur: null,
+        parkingSpaces: 1,
+        parkingSpacesAssumed: false,
+        parkingTotalEur: null,
+        transferTaxRate: 0.06,
+        transferTaxEur: 27000,
+        notaryEur: 9000,
+        registerEur: 2250,
+        commissionPercent: 3.57,
+        commissionAssumed: false,
+        commissionEur: 16065,
+        extraEur: 54315,
+        extraPercent: 12.07,
+        equityEur: 90000,
+        cashToCloseEur: 144315,
+        loanEur: 360000,
+        monthlyInterest: 1050,
+        monthlyPrincipal: 600,
+        monthlyDebt: 1650,
+        monthlyHeating: 108,
+        monthlyCondoFee: 290,
+        monthlyGroundRent: 0,
+        monthlyMaintenance: null,
+        monthlyPropertyTax: null,
+        monthlyInsurance: null,
+        monthlyTotal: 2048,
+        monthlyPartial: 2048,
+        monthlyTotalComplete: true,
+        fixedYears: 10,
+        remainingDebtEur: 275000,
+        refinanceMonthlyPlus1Eur: 1850,
+        refinanceMonthlyPlus2Eur: 2050,
+        grossYield: null,
+        benchmarkEurPerM2: 4600,
+        benchmarkCity: "Darmstadt",
+        subscores: [],
+        score: 72,
+        verdict: "worth_a_look",
+        flags: [],
+      },
+      cohort: { count: 1, medianEurPerM2: 5000, deltaPct: 0 },
+      rentComparison: null,
+      maxOffer: { budgetPriceEur: 430000, scorePriceEur: 460000, scoreTarget: 65 },
+      bodenrichtwert: null,
+      districtSaleBand: null,
+      descriptionFindings: {
+        items: [{ key: "renovated", label: "Renovated 2020", snippet: "2020 modernisiert", year: 2020 }],
+        renovatedYear: 2020,
+        heatingReplacedYear: null,
+        source: "llm",
+        model: "qwen2.5:14b",
+        filledFields: ["condoFeeEur", "yearRefurbished"],
+      },
+      observations: [],
+      priceHistory: {
+        points: [],
+        firstSeenAt: null,
+        lastSeenAt: null,
+        lastChangeAt: null,
+        firstPriceEur: 450000,
+        currentPriceEur: 450000,
+        minPriceEur: 450000,
+        maxPriceEur: 450000,
+        totalChangeEur: 0,
+        totalChangePct: 0,
+        reductions: 0,
+        increases: 0,
+        daysOnMarket: 5,
+        startedAt: "2026-01-01T00:00:00.000Z",
+        startedBasis: "saved",
+      },
+    };
+
+    const onExtractAi = vi.fn().mockResolvedValue(undefined);
+    const onLoadInquiry = vi.fn().mockResolvedValue({
+      checklist: [
+        {
+          key: "weg_minutes",
+          category: "legal",
+          priority: "high",
+          title: "WEG minutes",
+          whyEnglish: "Check recent resolutions.",
+          questionGerman: "Könnten Sie mir die letzten drei Protokolle zusenden?",
+        },
+      ],
+      messageGerman: "Guten Tag,\nvielen Dank für das Exposé.",
+      source: "llm",
+      model: "qwen2.5:14b",
+    });
+
+    await act(async () => {
+      root.render(
+        <Detail
+          row={sampleRow}
+          states={[{ id: "HE", name: "Hesse", transferTaxPercent: 6 }]}
+          onBack={vi.fn()}
+          onStatus={vi.fn()}
+          onNotes={vi.fn()}
+          onCorrect={vi.fn().mockResolvedValue(undefined)}
+          onRemove={vi.fn().mockResolvedValue(undefined)}
+          onClearPoint={vi.fn()}
+          landPending={false}
+          landMiss={false}
+          aiConfigured={true}
+          onExtractAi={onExtractAi}
+          onLoadInquiry={onLoadInquiry}
+        />,
+      );
+    });
+
+    expect(host.textContent).toContain("Filled missing fields from the description: condoFeeEur, yearRefurbished");
+
+    const extractBtn = Array.from(host.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Re-extract with AI"),
+    );
+    await act(async () => {
+      extractBtn?.click();
+    });
+    expect(onExtractAi).toHaveBeenCalledOnce();
+
+    const draftBtn = Array.from(host.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Draft questions"),
+    );
+    await act(async () => {
+      draftBtn?.click();
+    });
+    expect(onLoadInquiry).toHaveBeenCalledWith(false);
+    expect(host.textContent).toContain("WEG minutes");
+
+    const tailorBtn = Array.from(host.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Tailor with AI"),
+    );
+    await act(async () => {
+      tailorBtn?.click();
+    });
+    expect(onLoadInquiry).toHaveBeenCalledWith(true);
+
+    const copyBtn = Array.from(host.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Copy German text"),
+    );
+    await act(async () => {
+      copyBtn?.click();
+    });
   });
 });

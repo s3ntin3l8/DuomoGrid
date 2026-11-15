@@ -77,6 +77,7 @@ describe("routes/ai", () => {
       baseUrl: "https://api.anthropic.com",
       hasApiKey: true,
       apiKeyPreview: "***...4321",
+      apiKeySource: "db", // pragma: allowlist secret
       model: "claude-3-5-sonnet-latest",
       autoExtractOnSave: true,
       configured: true,
@@ -106,6 +107,7 @@ describe("routes/ai", () => {
       provider: "anthropic",
       hasApiKey: true,
       apiKeyPreview: "***...7788",
+      apiKeySource: "env", // pragma: allowlist secret
       configured: true,
       encryptionEnabled: false,
     });
@@ -128,15 +130,37 @@ describe("routes/ai", () => {
       autoExtractOnSave: true,
       hasApiKey: true,
       apiKeyPreview: "***...7788",
+      apiKeySource: "env", // pragma: allowlist secret
       configured: true,
       encryptionEnabled: false,
+    });
+
+    // Sending clearApiKey: true on an env-only key does not disable the .env key
+    const clearEnvRes = await appNoEnc.inject({
+      method: "PUT",
+      url: "/ai/settings",
+      headers,
+      payload: {
+        provider: "anthropic",
+        baseUrl: "https://api.anthropic.com",
+        model: "claude-3-5-haiku-latest",
+        clearApiKey: true,
+      },
+    });
+    expect(clearEnvRes.statusCode).toBe(200);
+    expect(clearEnvRes.json()).toMatchObject({
+      hasApiKey: true,
+      apiKeyPreview: "***...7788",
+      apiKeySource: "env", // pragma: allowlist secret
+      configured: true,
     });
 
     const rowNoEnc = appNoEnc.db.select().from(settings).where(eq(settings.key, "ai")).get();
     expect(JSON.parse(rowNoEnc?.value ?? "{}").apiKey).toBe("");
     await appNoEnc.close();
 
-    // 2. Even with DB_ENCRYPTION_KEY enabled, an env-sourced key is not copied into the settings row
+    // 2. Even with DB_ENCRYPTION_KEY enabled, an env-sourced key is not copied into the settings row,
+    // and clearing a DB override key restores the .env key
     process.env.DB_ENCRYPTION_KEY = crypto.randomBytes(32).toString("base64url");
     const appWithEnc = await buildApp();
     const putEncRes = await appWithEnc.inject({
@@ -153,6 +177,42 @@ describe("routes/ai", () => {
     expect(putEncRes.statusCode).toBe(200);
     const rowWithEnc = appWithEnc.db.select().from(settings).where(eq(settings.key, "ai")).get();
     expect(JSON.parse(rowWithEnc?.value ?? "{}").apiKey).toBe("");
+
+    // Override with a DB key, then clear it -> falls back to .env key
+    const dbOverrideKey = ["db", "override", "9900"].join("-");
+    const overrideRes = await appWithEnc.inject({
+      method: "PUT",
+      url: "/ai/settings",
+      headers,
+      payload: {
+        provider: "anthropic",
+        baseUrl: "https://api.anthropic.com",
+        apiKey: dbOverrideKey, // pragma: allowlist secret
+        model: "claude-sonnet-4-20250514",
+      },
+    });
+    expect(overrideRes.json()).toMatchObject({
+      hasApiKey: true,
+      apiKeyPreview: "***...9900",
+      apiKeySource: "db", // pragma: allowlist secret
+    });
+
+    const clearedOverrideRes = await appWithEnc.inject({
+      method: "PUT",
+      url: "/ai/settings",
+      headers,
+      payload: {
+        provider: "anthropic",
+        baseUrl: "https://api.anthropic.com",
+        clearApiKey: true,
+        model: "claude-sonnet-4-20250514",
+      },
+    });
+    expect(clearedOverrideRes.json()).toMatchObject({
+      hasApiKey: true,
+      apiKeyPreview: "***...7788",
+      apiKeySource: "env", // pragma: allowlist secret
+    });
     await appWithEnc.close();
   });
 

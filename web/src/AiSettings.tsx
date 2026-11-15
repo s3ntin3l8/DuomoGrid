@@ -172,7 +172,9 @@ export function AiSettingsForm({
                     clearApiKey
                       ? "Key will be cleared on save"
                       : initial.apiKeyPreview
-                        ? `Stored: ${initial.apiKeyPreview} (leave blank to keep)`
+                        ? initial.apiKeySource === "env" // pragma: allowlist secret
+                          ? `From .env: ${initial.apiKeyPreview} (leave blank to keep)`
+                          : `Stored: ${initial.apiKeyPreview} (leave blank to keep)`
                         : "Paste API key"
                   }
                 />
@@ -184,7 +186,13 @@ export function AiSettingsForm({
                 </p>
               ) : null}
 
-              {initial.hasApiKey && !clearApiKey ? (
+              {initial.hasApiKey && initial.apiKeySource === "env" ? ( // pragma: allowlist secret
+                <p className="meta">
+                  Using <code>AI_API_KEY</code> from <code>.env</code> ({initial.apiKeyPreview}).
+                </p>
+              ) : null}
+
+              {initial.hasApiKey && initial.apiKeySource !== "env" && !clearApiKey ? ( // pragma: allowlist secret
                 <div className="row-actions">
                   <span className="meta">Stored key: {initial.apiKeyPreview}</span>
                   <button

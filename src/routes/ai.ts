@@ -70,7 +70,7 @@ export async function aiRoute(app: FastifyInstance) {
     } else {
       app.db.insert(settings).values({ key: "ai", value }).run();
     }
-    return toPublicAiSettings(updated.settings, app.encryption);
+    return toPublicAiSettings(currentAiSettings(), app.encryption);
   });
 
   app.post("/ai/test", async (request, reply) => {
