@@ -40,11 +40,11 @@ describe("POST /auth/pair", () => {
       headers: { authorization: "Bearer test-token", host: "127.0.0.1:3000" },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ apiUrl: "http://127.0.0.1:3000", ingestToken: "test-token" });
+    expect(response.json()).toEqual({ ingestToken: "test-token" });
     await app.close();
   });
 
-  it("accepts the identity header from a trusted peer and uses the forwarded host", async () => {
+  it("accepts the identity header from a trusted peer and does not require a bearer token", async () => {
     process.env.INGEST_TOKEN = "test-token";
     process.env.TRUST_PROXY = "10.0.0.0/8";
     process.env.TRUSTED_AUTH_HEADER = "X-Authentik-Username";
@@ -53,17 +53,10 @@ describe("POST /auth/pair", () => {
       method: "POST",
       url: "/auth/pair",
       remoteAddress: "10.0.0.5",
-      headers: {
-        "x-authentik-username": "ada",
-        "x-forwarded-proto": "https",
-        "x-forwarded-host": "duomogrid.example",
-      },
+      headers: { "x-authentik-username": "ada" },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      apiUrl: "https://duomogrid.example",
-      ingestToken: "test-token",
-    });
+    expect(response.json()).toEqual({ ingestToken: "test-token" });
     await app.close();
   });
 });

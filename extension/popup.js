@@ -1,3 +1,4 @@
+import { pairFromPage } from "./pair.js";
 import { isNewer, updateLink } from "./update.js";
 
 let current = null;
@@ -61,20 +62,6 @@ function showPaired(apiUrl) {
   manual.open = false;
 }
 
-/** Runs in the desk page, so the Authentik cookie and the desk's stored token are available. */
-async function pairFromPage() {
-  const token = localStorage.getItem("duomo.token") || "";
-  const headers = {};
-  if (token) headers.authorization = `Bearer ${token}`;
-  const response = await fetch("/auth/pair", { method: "POST", headers });
-  if (!response.ok) return { ok: false, status: response.status };
-  const body = await response.json();
-  const apiUrl = String(body.apiUrl ?? "").replace(/\/$/, "");
-  const ingestToken = String(body.ingestToken ?? "");
-  if (!apiUrl || !ingestToken) return { ok: false, status: response.status };
-  return { ok: true, apiUrl, ingestToken };
-}
-
 async function init() {
   const stored = await chrome.storage.sync.get(["apiUrl", "ingestToken", "autoUpdate"]);
   document.querySelector("#auto").checked = Boolean(stored.autoUpdate);
@@ -91,12 +78,12 @@ async function init() {
   try {
     const response = await readTab(tab.id);
     if (!response?.ok) {
-      if (expose) showStatus(response?.reason || "This is not a single listing.");
+      showStatus(expose ? response?.reason || "This is not a single listing." : "Open a listing to save it, or pair from the desk.");
       return;
     }
     render(response.listing);
   } catch {
-    if (expose) showStatus("This page cannot be read. Open one listing on ImmoScout24 or Immowelt.");
+    showStatus(expose ? "This page cannot be read. Open one listing on ImmoScout24 or Immowelt." : "Open a listing to save it, or pair from the desk.");
   }
 }
 
@@ -125,10 +112,11 @@ document.querySelector("#pair").addEventListener("click", async () => {
       showStatus("Open the desk and sign in, then pair. The server did not hand over a token.");
       return;
     }
-    await chrome.storage.sync.set({ apiUrl: paired.apiUrl, ingestToken: paired.ingestToken });
-    document.querySelector("#url").value = paired.apiUrl;
+    const apiUrl = new URL(tab.url).origin;
+    await chrome.storage.sync.set({ apiUrl, ingestToken: paired.ingestToken });
+    document.querySelector("#url").value = apiUrl;
     document.querySelector("#token").value = paired.ingestToken;
-    showPaired(paired.apiUrl);
+    showPaired(apiUrl);
     showStatus("Paired.");
   } catch {
     showStatus("Open the desk, then pair.");
@@ -181,7 +169,7 @@ document.querySelector("#copy").addEventListener("click", async () => {
 
 async function noticeUpdate() {
   const currentVersion = chrome.runtime.getManifest().version;
-  const cached = await chrome.storage.session.get("updateCheck");
+  const cached = await chrome.storage.local.get("updateCheck");
   let release = cached.updateCheck;
   if (!release || Date.now() - release.checkedAt > UPDATE_TTL_MS) {
     try {
@@ -194,7 +182,7 @@ async function noticeUpdate() {
         html_url: body.html_url,
         assets: body.assets,
       };
-      await chrome.storage.session.set({ updateCheck: release });
+      await chrome.storage.local.set({ updateCheck: release });
     } catch {
       return;
     }

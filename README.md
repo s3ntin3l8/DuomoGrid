@@ -58,7 +58,7 @@ Each GitHub release includes `duomogrid-extension-<version>.zip`, with `manifest
 
 Trends are the medians of listings you saved. These are tracked as issues:
 
-- Local copies of photos and floor plans, which needs a decision on the "no requests" rule (#26).
+- Local copies of photos and floor plans, which needs a decision on the "no requests" rule (#26). That rule is about portal pages. The extension popup does ask GitHub, at most once an hour, whether a newer release zip exists.
 - A stronger score that uses the district band, price cuts and the portal estimate (#27).
 - Leasehold, listed-building and tenant flags driven by the description on the server (#28).
 - A check of the Immowelt rental layout against a real saved rental page (#29).
