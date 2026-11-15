@@ -67,6 +67,21 @@ const schema = {
       type: "string",
       default: "",
     },
+    // GENESIS personal token for the Destatis household energy prices. Empty leaves the energy
+    // prices off; the market rates need no account at all.
+    DESTATIS_API_TOKEN: {
+      type: "string",
+      default: "",
+    },
+    // Fallback for accounts without a token. A token needs no password.
+    DESTATIS_API_USER: {
+      type: "string",
+      default: "",
+    },
+    DESTATIS_API_PASSWORD: {
+      type: "string",
+      default: "",
+    },
   },
 };
 
@@ -163,6 +178,9 @@ declare module "fastify" {
       AI_BASE_URL: string;
       AI_API_KEY: string;
       AI_MODEL: string;
+      DESTATIS_API_TOKEN: string;
+      DESTATIS_API_USER: string;
+      DESTATIS_API_PASSWORD: string;
     };
     /**
      * Address list passed to Fastify as `trustProxy`, or null when that option

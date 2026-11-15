@@ -10,6 +10,7 @@ import {
   loadSession,
   rememberToken,
   removeListing,
+  refreshMarketRates,
   saveAiSettings,
   saveAssumptions,
   saveListing,
@@ -19,7 +20,9 @@ import {
   type Assumptions,
   type DeskListing,
   type ListingPatch,
+  type MarketSnapshot,
   type StateOption,
+  type Suggestions,
 } from "./api";
 import { AiSettingsForm } from "./AiSettings";
 import { AssumptionsForm } from "./Assumptions";
@@ -50,6 +53,8 @@ export function App() {
   const [session, setSession] = useState<Session>("checking");
   const [rows, setRows] = useState<DeskListing[]>([]);
   const [assumptions, setAssumptions] = useState<Assumptions | null>(null);
+  const [market, setMarket] = useState<MarketSnapshot | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
   const [aiSettings, setAiSettings] = useState<AiSettingsPublic | null>(null);
   const [states, setStates] = useState<StateOption[]>([]);
   const [error, setError] = useState("");
@@ -73,6 +78,8 @@ export function App() {
     setRows(list);
     setAssumptions(model.assumptions);
     setStates(model.states);
+    setMarket(model.market);
+    setSuggestions(model.suggestions);
     if (aiModel) setAiSettings(aiModel);
     setActiveId((current) => current ?? list[0]?.id ?? null);
   }
@@ -295,7 +302,7 @@ export function App() {
               Map
             </button>
             <button className="quiet" type="button" aria-pressed={mode === "assumptions"} onClick={() => { setMode("assumptions"); setReading(true); }}>
-              Assumptions
+              Settings
             </button>
             <button className="quiet" type="button" aria-pressed={mode === "chat"} onClick={() => { setMode("chat"); setReading(true); }}>
               Ask AI
@@ -314,16 +321,26 @@ export function App() {
           </div>
         </div>
         {error ? <p className="error">{error}</p> : null}
-        {mode === "assumptions" && assumptions ? (
+        {mode === "assumptions" && assumptions && market && suggestions ? (
           <AssumptionsForm
             key={JSON.stringify(assumptions)}
             initial={assumptions}
             states={states}
-            onSave={async (next) => {
-              const saved = await saveAssumptions(token, next);
+            market={market}
+            suggestions={suggestions}
+            onSave={async (next, options) => {
+              const saved = await saveAssumptions(token, next, options);
               setAssumptions(saved.assumptions);
+              setMarket(saved.market);
+              setSuggestions(saved.suggestions);
               await refresh(token);
               setMode("detail");
+            }}
+            onRefresh={async () => {
+              const refreshed = await refreshMarketRates(token);
+              setAssumptions(refreshed.assumptions);
+              setMarket(refreshed.market);
+              setSuggestions(refreshed.suggestions);
             }}
           />
         ) : null}

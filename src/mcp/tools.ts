@@ -22,7 +22,7 @@ import {
 import { maxOffer } from "../domain/max-offer.js";
 import { energySourceOf } from "../domain/ingest.js";
 import { fold } from "../domain/reference.js";
-import { STATES, type ListingInput } from "../domain/types.js";
+import { STATES, type ListingInput, type Provenance } from "../domain/types.js";
 import {
   asBodenrichtwert,
   asInput,
@@ -682,6 +682,13 @@ export async function executeAgentTool(
 
   if (name === "update_assumptions") {
     const merged = normalizeAssumptions({ ...ctx.model, ...args });
+    // A value the caller set is the caller's own, so a market refresh never overwrites it. A value
+    // that was following the market keeps following it only when the caller left it alone.
+    const own: Provenance = { source: "user", asOf: null, note: null };
+    if (args.interestPercent !== undefined) merged.interestProvenance = own;
+    if (args.notaryPercent !== undefined) merged.notaryProvenance = own;
+    if (args.registerPercent !== undefined) merged.registerProvenance = own;
+    if (args.fallbackCommissionPercent !== undefined) merged.commissionProvenance = own;
     const value = JSON.stringify(merged);
     const existing = db.select().from(settings).where(eq(settings.key, "assumptions")).all()[0];
     if (existing) {
