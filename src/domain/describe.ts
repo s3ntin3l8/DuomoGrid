@@ -199,9 +199,9 @@ function validYear(value: unknown, now: number): number | null {
   return Number.isInteger(num) && num >= 1600 && num <= now ? num : null;
 }
 
-function validPositive(value: unknown): number | null {
+function validPositive(value: unknown, max = 100_000): number | null {
   const num = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(num) && num > 0 ? num : null;
+  return Number.isFinite(num) && num > 0 && num <= max ? num : null;
 }
 
 function validCount(value: unknown, max: number): number | null {
@@ -228,13 +228,13 @@ export function sanitizeExtractedFacts(raw: unknown, now = new Date().getUTCFull
     yearRefurbished: validYear(obj.yearRefurbished, now),
     heatingReplacedYear: validYear(obj.heatingReplacedYear, now),
     leasehold: validBoolOrNull(obj.leasehold),
-    groundRentEur: validPositive(obj.groundRentEur),
+    groundRentEur: validPositive(obj.groundRentEur, 50_000),
     monument: validBoolOrNull(obj.monument),
     tenantOccupied: validBoolOrNull(obj.tenantOccupied),
-    condoFeeEur: validPositive(obj.condoFeeEur),
-    coldRentEur: validPositive(obj.coldRentEur),
+    condoFeeEur: validPositive(obj.condoFeeEur, 25_000),
+    coldRentEur: validPositive(obj.coldRentEur, 100_000),
     parkingSpaces: validCount(obj.parkingSpaces, 99),
-    parkingPriceEur: validPositive(obj.parkingPriceEur),
+    parkingPriceEur: validPositive(obj.parkingPriceEur, 500_000),
   };
 }
 
@@ -321,7 +321,7 @@ Rules:
       const snippet = typeof item.snippet === "string" ? snippetOf(item.snippet.trim()) : "";
       if (!label || !snippet) continue;
       const year = validYear(item.year, now) ?? undefined;
-      const amountEur = validPositive(item.amountEur) ?? undefined;
+      const amountEur = validPositive(item.amountEur, 50_000_000) ?? undefined;
       itemsByKey.set(key, {
         key,
         label,

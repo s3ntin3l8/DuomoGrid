@@ -49,21 +49,28 @@ export async function aiRoute(app: FastifyInstance) {
   }
 
   app.get("/ai/settings", async () => {
-    return toPublicAiSettings(currentAiSettings());
+    return toPublicAiSettings(currentAiSettings(), app.encryption);
   });
 
   app.put("/ai/settings", async (request, reply) => {
     const current = currentAiSettings();
     const updated = applyAiSettingsUpdate(current, request.body);
     if (!updated.ok) return reply.code(400).send({ error: updated.error });
-    const value = serializeAiSettings(updated.settings, app.encryption);
+    let value: string;
+    try {
+      value = serializeAiSettings(updated.settings, app.encryption);
+    } catch (err) {
+      return reply.code(400).send({
+        error: err instanceof Error ? err.message : "Could not save AI settings.",
+      });
+    }
     const existing = app.db.select().from(settings).where(eq(settings.key, "ai")).all()[0];
     if (existing) {
       app.db.update(settings).set({ value }).where(eq(settings.key, "ai")).run();
     } else {
       app.db.insert(settings).values({ key: "ai", value }).run();
     }
-    return toPublicAiSettings(updated.settings);
+    return toPublicAiSettings(updated.settings, app.encryption);
   });
 
   app.post("/ai/test", async (request, reply) => {
@@ -222,7 +229,7 @@ Current financing assumptions: ${JSON.stringify(ctx.model)}${activeContext}`;
           system,
           messages,
           tools: getAgentTools({ readOnly: true }),
-          executeTool: (name, args) => executeAgentTool(deps, name, args),
+          executeTool: (name, args) => executeAgentTool(deps, name, args, { readOnly: true }),
         });
         return result;
       } catch (err) {

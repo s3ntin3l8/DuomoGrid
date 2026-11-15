@@ -292,11 +292,14 @@ export function findingsFor(
   llmStoredJson: string | null = null,
 ): DescriptionFindings {
   if (stored && llmStoredJson) {
+    const llmKey = `${stored}\0${llmStoredJson}`;
+    const cachedLlm = findingsCache.get(llmKey);
+    if (cachedLlm) return cachedLlm;
     try {
       const parsed = JSON.parse(llmStoredJson) as StoredLlmExtraction;
       const digest = descriptionDigest(stored);
       if (parsed && parsed.descriptionHash === digest && Array.isArray(parsed.items)) {
-        return {
+        const llmFound: DescriptionFindings = {
           items: parsed.items,
           renovatedYear: parsed.renovatedYear ?? null,
           heatingReplacedYear: parsed.heatingReplacedYear ?? null,
@@ -304,6 +307,9 @@ export function findingsFor(
           source: "llm",
           model: parsed.model ?? null,
         };
+        if (findingsCache.size >= FINDINGS_CACHE_MAX) findingsCache.clear();
+        findingsCache.set(llmKey, llmFound);
+        return llmFound;
       }
     } catch {
       /* ignore invalid cached JSON and fall back to regex */
@@ -787,7 +793,7 @@ export async function listingsRoute(app: FastifyInstance) {
         rawJson: JSON.stringify(withoutLongText(request.body)),
       }).run();
     }
-    let stored = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+    const stored = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
     const aiSettings = loadCurrentAiSettings(app.db, app.config, app.encryption);
     if (
       aiSettings.autoExtractOnSave &&
@@ -795,22 +801,26 @@ export async function listingsRoute(app: FastifyInstance) {
       stored.descriptionJson &&
       !stored.llmExtractionJson
     ) {
-      try {
-        const extracted = await extractDescriptionWithLlm(
-          aiSettings,
-          listing.description,
-          listing.details,
-          stored.descriptionJson,
-        );
-        app.db
-          .update(listings)
-          .set({ llmExtractionJson: JSON.stringify(extracted) })
-          .where(eq(listings.id, id))
-          .run();
-        stored = app.db.select().from(listings).where(eq(listings.id, id)).all()[0] ?? stored;
-      } catch (err) {
-        app.log.warn({ err, listingId: id }, "Auto-extraction with AI failed; keeping regex fallback");
-      }
+      const descSnapshot = stored.descriptionJson;
+      void extractDescriptionWithLlm(
+        aiSettings,
+        listing.description,
+        listing.details,
+        descSnapshot,
+      )
+        .then((extracted) => {
+          const current = app.db.select().from(listings).where(eq(listings.id, id)).all()[0];
+          if (current && current.descriptionJson === descSnapshot) {
+            app.db
+              .update(listings)
+              .set({ llmExtractionJson: JSON.stringify(extracted) })
+              .where(eq(listings.id, id))
+              .run();
+          }
+        })
+        .catch((err: unknown) => {
+          app.log.warn({ err, listingId: id }, "Auto-extraction with AI failed; keeping regex fallback");
+        });
     }
     const ctx = context();
     reply.code(existing ? 200 : 201);

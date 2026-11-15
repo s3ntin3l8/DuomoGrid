@@ -295,6 +295,8 @@ const WRITE_TOOLS: AgentToolDef[] = [
   },
 ];
 
+const READ_TOOL_NAMES = new Set(READ_TOOLS.map((tool) => tool.name));
+
 export function getAgentTools(opts: { readOnly?: boolean } = {}): AgentToolDef[] {
   return opts.readOnly ? READ_TOOLS : [...READ_TOOLS, ...WRITE_TOOLS];
 }
@@ -303,7 +305,14 @@ export async function executeAgentTool(
   deps: AgentDeps,
   name: string,
   args: Record<string, unknown>,
+  opts: { readOnly?: boolean } = {},
 ): Promise<{ result: unknown; summary: string }> {
+  if (opts.readOnly && !READ_TOOL_NAMES.has(name)) {
+    return {
+      result: { error: `Tool "${name}" is not allowed in read-only mode.` },
+      summary: `Blocked write tool ${name}`,
+    };
+  }
   const { db, encryption, envConfig } = deps;
   const presenter = createListingPresenter(db);
   const ctx = presenter.context();

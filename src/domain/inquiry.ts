@@ -273,14 +273,16 @@ Rules:
     }
   }
 
-  const messageGerman =
-    typeof raw?.messageGerman === "string" && raw.messageGerman.trim().length > 20
-      ? raw.messageGerman.trim().slice(0, 4000)
-      : baseline.messageGerman;
+  const usedLlmChecklist = refinedList.length > 0;
+  const usedLlmMessage =
+    typeof raw?.messageGerman === "string" && raw.messageGerman.trim().length > 20;
+  if (!usedLlmChecklist && !usedLlmMessage) {
+    return baseline;
+  }
 
   return {
-    checklist: refinedList.length > 0 ? refinedList : baseline.checklist,
-    messageGerman,
+    checklist: usedLlmChecklist ? refinedList : baseline.checklist,
+    messageGerman: usedLlmMessage ? (raw.messageGerman as string).trim().slice(0, 4000) : baseline.messageGerman,
     source: "llm",
     model: settings.model,
   };

@@ -301,6 +301,7 @@ export type AiSettingsPublic = {
   hasApiKey: boolean;
   apiKeyPreview: string | null;
   configured: boolean;
+  encryptionEnabled?: boolean;
 };
 
 export type AiSettingsUpdate = {

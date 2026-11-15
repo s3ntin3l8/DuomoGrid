@@ -28,6 +28,15 @@ const PRESETS: { label: string; provider: AiProvider; baseUrl: string; modelHint
   },
 ];
 
+function parseUrlParts(raw: string): { hostname: string; port: string } {
+  try {
+    const parsed = new URL(raw);
+    return { hostname: parsed.hostname.toLowerCase(), port: parsed.port };
+  } catch {
+    return { hostname: "", port: "" };
+  }
+}
+
 export function AiSettingsForm({
   initial,
   onSave,
@@ -111,9 +120,10 @@ export function AiSettingsForm({
               onChange={(event) => {
                 const next = event.target.value as AiProvider;
                 setProvider(next);
-                if (next === "anthropic" && baseUrl.includes("11434")) {
+                const current = parseUrlParts(baseUrl);
+                if (next === "anthropic" && current.port === "11434") {
                   setBaseUrl("https://api.anthropic.com");
-                } else if (next === "openai" && baseUrl.includes("anthropic.com")) {
+                } else if (next === "openai" && current.hostname === "api.anthropic.com") {
                   setBaseUrl("http://127.0.0.1:11434/v1");
                 }
               }}
@@ -164,6 +174,12 @@ export function AiSettingsForm({
                   }
                 />
               </label>
+
+              {initial.encryptionEnabled === false ? (
+                <p className="meta">
+                  Note: <code>DB_ENCRYPTION_KEY</code> is not configured on the server, so saving an API key in the database is disabled until encryption at rest is turned on (local keyless providers like Ollama work without one).
+                </p>
+              ) : null}
 
               {initial.hasApiKey && !clearApiKey ? (
                 <div className="row-actions">

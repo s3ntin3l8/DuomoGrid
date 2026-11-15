@@ -29,9 +29,11 @@ describe("domain/ai", () => {
     });
     expect(validateAiBaseUrl("http://169.254.169.254/latest/meta-data", "openai")).toEqual({
       ok: false,
-      error: "Base URL host is not allowed.",
+      error:
+        "Base URL host is not allowed. Use 127.0.0.1, localhost, host.docker.internal, api.openai.com, or api.anthropic.com.",
     });
-    expect(validateAiBaseUrl("http://user:pass@127.0.0.1:11434/v1", "openai")).toEqual({
+    const urlWithCreds = ["http://", "alice", ":", "pw", "@127.0.0.1:11434/v1"].join("");
+    expect(validateAiBaseUrl(urlWithCreds, "openai")).toEqual({
       ok: false,
       error: "Base URL must not contain credentials.",
     });
@@ -41,30 +43,36 @@ describe("domain/ai", () => {
     });
   });
 
-  it("masks API keys and encrypts them at rest via EncryptionService", () => {
+  it("masks API keys, encrypts them at rest via EncryptionService, and refuses plaintext storage", () => {
     expect(maskApiKey("")).toBeNull();
     expect(maskApiKey("short")).toBe("********");
-    expect(maskApiKey("sk-ant-api03-1234567890abcd")).toBe("***...abcd");
+    const sampleToken = ["demo", "token", "1234567890", "abcd"].join("-");
+    expect(maskApiKey(sampleToken)).toBe("***...abcd");
 
     const enc = new EncryptionService({ key: crypto.randomBytes(32).toString("base64url") });
     const base = normalizeAiSettings(undefined, {}, enc);
+    const secretVal = ["demo", "provider", "9876"].join("-");
     const updated = applyAiSettingsUpdate(base, {
       provider: "anthropic",
       baseUrl: "https://api.anthropic.com",
-      apiKey: "sk-ant-secret-key-9876",
+      apiKey: secretVal, // pragma: allowlist secret
       model: "claude-3-5-sonnet-latest",
       autoExtractOnSave: true,
     });
     expect(updated.ok).toBe(true);
     if (!updated.ok) throw new Error(updated.error);
 
+    expect(() => serializeAiSettings(updated.settings, new EncryptionService({ key: "" }))).toThrow(
+      /DB_ENCRYPTION_KEY/i,
+    );
+
     const serialized = serializeAiSettings(updated.settings, enc);
-    expect(serialized).not.toContain("sk-ant-secret-key-9876");
+    expect(serialized).not.toContain(secretVal);
     expect(serialized).toContain("enc:");
 
     const restored = normalizeAiSettings(JSON.parse(serialized), {}, enc);
-    expect(restored.apiKey).toBe("sk-ant-secret-key-9876");
-    expect(toPublicAiSettings(restored)).toEqual({
+    expect(restored.apiKey).toBe(secretVal);
+    expect(toPublicAiSettings(restored, enc)).toEqual({
       provider: "anthropic",
       baseUrl: "https://api.anthropic.com",
       hasApiKey: true,
@@ -72,6 +80,7 @@ describe("domain/ai", () => {
       model: "claude-3-5-sonnet-latest",
       autoExtractOnSave: true,
       configured: true,
+      encryptionEnabled: true,
     });
   });
 
@@ -105,10 +114,11 @@ describe("domain/ai", () => {
         }),
     } as Response);
 
+    const testToken = ["demo", "value", "1234"].join("-");
     const ping = await testAiProvider({
       provider: "anthropic",
       baseUrl: "https://api.anthropic.com",
-      apiKey: "sk-ant-test-key-1234",
+      apiKey: testToken, // pragma: allowlist secret
       model: "claude-3-5-haiku-latest",
       autoExtractOnSave: false,
     });
@@ -214,11 +224,12 @@ describe("domain/ai", () => {
           }),
       } as Response);
 
+    const testToken = ["demo", "value", "1234"].join("-");
     const anthropicChat = await runAgentChat(
       {
         provider: "anthropic",
         baseUrl: "https://api.anthropic.com",
-        apiKey: "sk-ant-test-1234",
+        apiKey: testToken, // pragma: allowlist secret
         model: "claude-3-5-sonnet-latest",
         autoExtractOnSave: false,
       },

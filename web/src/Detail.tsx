@@ -371,6 +371,38 @@ function MaklerInquiry({
   const [error, setError] = useState("");
   if (!onLoadInquiry) return null;
 
+  async function copyMessage(text: string) {
+    setError("");
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        return;
+      }
+    } catch {
+      /* fall through to textarea fallback */
+    }
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(area);
+      if (ok) {
+        setCopied(true);
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
+    setCopied(false);
+    setError("Could not copy automatically — select the text above and copy manually.");
+  }
+
   function fetchInquiry(useLlm: boolean) {
     if (!onLoadInquiry) return;
     setBusy(true);
@@ -441,9 +473,7 @@ function MaklerInquiry({
                 className="quiet"
                 type="button"
                 onClick={() => {
-                  void navigator.clipboard?.writeText(inquiry.messageGerman).then(() => {
-                    setCopied(true);
-                  });
+                  void copyMessage(inquiry.messageGerman);
                 }}
               >
                 {copied ? "Copied" : "Copy German text"}

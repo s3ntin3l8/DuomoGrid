@@ -25,15 +25,36 @@ describe("routes/ai", () => {
     await app.close();
   });
 
-  it("reads and updates AI settings with encrypted API keys at rest and masked responses", async () => {
+  it("refuses storing an API key without DB_ENCRYPTION_KEY, and encrypts it at rest when enabled", async () => {
     process.env.INGEST_TOKEN = "test-token";
+    const headers = { authorization: "Bearer test-token" };
+    const sampleSecret = ["demo", "credential", "4321"].join("-");
+
+    // Without DB_ENCRYPTION_KEY, saving an API key is refused
+    const appUnencrypted = await buildApp();
+    const refused = await appUnencrypted.inject({
+      method: "PUT",
+      url: "/ai/settings",
+      headers,
+      payload: {
+        provider: "anthropic",
+        baseUrl: "https://api.anthropic.com",
+        apiKey: sampleSecret, // pragma: allowlist secret
+        model: "claude-3-5-sonnet-latest",
+      },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error).toMatch(/DB_ENCRYPTION_KEY/);
+    await appUnencrypted.close();
+
+    // With DB_ENCRYPTION_KEY, saving succeeds and encrypts at rest
     process.env.DB_ENCRYPTION_KEY = crypto.randomBytes(32).toString("base64url");
     const app = await buildApp();
-    const headers = { authorization: "Bearer test-token" };
 
     const initial = await app.inject({ method: "GET", url: "/ai/settings", headers });
     expect(initial.statusCode).toBe(200);
     expect(initial.json().configured).toBe(false);
+    expect(initial.json().encryptionEnabled).toBe(true);
 
     const updated = await app.inject({
       method: "PUT",
@@ -42,7 +63,7 @@ describe("routes/ai", () => {
       payload: {
         provider: "anthropic",
         baseUrl: "https://api.anthropic.com",
-        apiKey: "sk-ant-api03-secret-key-4321",
+        apiKey: sampleSecret, // pragma: allowlist secret
         model: "claude-3-5-sonnet-latest",
         autoExtractOnSave: true,
       },
@@ -56,12 +77,12 @@ describe("routes/ai", () => {
       model: "claude-3-5-sonnet-latest",
       autoExtractOnSave: true,
       configured: true,
+      encryptionEnabled: true,
     });
 
-    // Verify database row has encrypted key and no plaintext key
     const row = app.db.select().from(settings).where(eq(settings.key, "ai")).get();
     expect(row).toBeDefined();
-    expect(row?.value).not.toContain("sk-ant-api03-secret-key-4321");
+    expect(row?.value).not.toContain(sampleSecret);
     expect(row?.value).toContain("enc:");
 
     await app.close();
@@ -172,7 +193,7 @@ describe("routes/ai", () => {
     await app.close();
   });
 
-  it("supports in-desk chat with deterministic simulation tools", async () => {
+  it("supports in-desk chat with deterministic simulation tools and blocks write tools", async () => {
     process.env.INGEST_TOKEN = "test-token";
     const app = await buildApp();
     const headers = { authorization: "Bearer test-token" };
@@ -229,6 +250,14 @@ describe("routes/ai", () => {
                         arguments: JSON.stringify({ id: listingId, priceEur: 450000, interestPercent: 3.1 }),
                       },
                     },
+                    {
+                      id: "call_write",
+                      type: "function",
+                      function: {
+                        name: "update_listing",
+                        arguments: JSON.stringify({ id: listingId, status: "pass", notes: "injected" }),
+                      },
+                    },
                   ],
                 },
               },
@@ -259,10 +288,19 @@ describe("routes/ai", () => {
       },
     });
     expect(chatRes.statusCode).toBe(200);
-    expect(chatRes.json().toolCalls).toHaveLength(1);
+    expect(chatRes.json().toolCalls).toHaveLength(2);
     expect(chatRes.json().toolCalls[0].name).toBe("simulate_analysis");
+    expect(chatRes.json().toolCalls[1]).toMatchObject({
+      name: "update_listing",
+      summary: "Blocked write tool update_listing",
+    });
     expect(chatRes.json().reply).toContain("450,000 €");
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    // Ensure the listing was NOT modified by the blocked tool call
+    const unchanged = await app.inject({ method: "GET", url: `/listings/${listingId}`, headers });
+    expect(unchanged.json().status).toBe("open");
+    expect(unchanged.json().notes).toBe("");
 
     await app.close();
   });

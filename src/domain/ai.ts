@@ -18,12 +18,13 @@ export type AiSettingsPublic = {
   hasApiKey: boolean;
   apiKeyPreview: string | null;
   configured: boolean;
+  encryptionEnabled?: boolean;
 };
 
 export type EnvAiDefaults = {
   AI_PROVIDER?: string;
   AI_BASE_URL?: string;
-  AI_API_KEY?: string;
+  AI_API_KEY?: string; // pragma: allowlist secret
   AI_MODEL?: string;
 };
 
@@ -56,25 +57,18 @@ export type ToolCallRecord = {
   summary: string;
 };
 
-const BLOCKED_HOSTS = new Set([
-  "169.254.169.254",
-  "100.100.100.200",
-  "metadata.google.internal",
-  "metadata.goog",
-]);
+const ALLOWED_LOCAL_HOSTS = ["127.0.0.1", "localhost", "host.docker.internal"] as const;
+type AllowedLocalHost = (typeof ALLOWED_LOCAL_HOSTS)[number];
 
-function isLinkLocalHost(hostname: string): boolean {
-  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (BLOCKED_HOSTS.has(lower)) return true;
-  if (lower.startsWith("169.254.")) return true;
-  if (lower.startsWith("fe80:") || lower.startsWith("fe80%")) return true;
-  return false;
-}
+type SafeAiTarget =
+  | { kind: "anthropic" }
+  | { kind: "openai" }
+  | { kind: "local"; scheme: "http" | "https"; host: AllowedLocalHost; port: number };
 
-export function validateAiBaseUrl(
+function parseSafeAiTarget(
   raw: unknown,
   provider: AiProvider,
-): { ok: true; url: string } | { ok: false; error: string } {
+): { ok: true; target: SafeAiTarget; url: string } | { ok: false; error: string } {
   const trimmed = typeof raw === "string" ? raw.trim() : "";
   const fallback =
     provider === "anthropic"
@@ -93,11 +87,48 @@ export function validateAiBaseUrl(
   if (parsed.username || parsed.password) {
     return { ok: false, error: "Base URL must not contain credentials." };
   }
-  if (isLinkLocalHost(parsed.hostname)) {
-    return { ok: false, error: "Base URL host is not allowed." };
+  const host = parsed.hostname.toLowerCase();
+  if (host === "api.anthropic.com") {
+    if (parsed.protocol !== "https:" || parsed.port) {
+      return { ok: false, error: "Anthropic base URL must use https://api.anthropic.com." };
+    }
+    return { ok: true, target: { kind: "anthropic" }, url: "https://api.anthropic.com" };
   }
-  const normalized = parsed.toString().replace(/\/+$/, "");
-  return { ok: true, url: normalized };
+  if (host === "api.openai.com") {
+    if (parsed.protocol !== "https:" || parsed.port) {
+      return { ok: false, error: "OpenAI base URL must use https://api.openai.com/v1." };
+    }
+    return { ok: true, target: { kind: "openai" }, url: "https://api.openai.com/v1" };
+  }
+  const localHost = ALLOWED_LOCAL_HOSTS.find((item) => item === host);
+  if (!localHost) {
+    return {
+      ok: false,
+      error:
+        "Base URL host is not allowed. Use 127.0.0.1, localhost, host.docker.internal, api.openai.com, or api.anthropic.com.",
+    };
+  }
+  const scheme = parsed.protocol === "https:" ? "https" : "http";
+  const defaultPort = provider === "anthropic" ? 8000 : 11434;
+  const port = parsed.port ? Number.parseInt(parsed.port, 10) : defaultPort;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return { ok: false, error: "Base URL port must be between 1 and 65535." };
+  }
+  const suffix = provider === "anthropic" ? "" : "/v1";
+  return {
+    ok: true,
+    target: { kind: "local", scheme, host: localHost, port },
+    url: `${scheme}://${localHost}:${port}${suffix}`,
+  };
+}
+
+export function validateAiBaseUrl(
+  raw: unknown,
+  provider: AiProvider,
+): { ok: true; url: string } | { ok: false; error: string } {
+  const res = parseSafeAiTarget(raw, provider);
+  if (!res.ok) return res;
+  return { ok: true, url: res.url };
 }
 
 export function maskApiKey(apiKey: string): string | null {
@@ -114,7 +145,10 @@ export function isAiConfigured(settings: AiSettings): boolean {
   return true;
 }
 
-export function toPublicAiSettings(settings: AiSettings): AiSettingsPublic {
+export function toPublicAiSettings(
+  settings: AiSettings,
+  encryption?: EncryptionService,
+): AiSettingsPublic {
   return {
     provider: settings.provider,
     baseUrl: settings.baseUrl,
@@ -123,6 +157,7 @@ export function toPublicAiSettings(settings: AiSettings): AiSettingsPublic {
     hasApiKey: Boolean(settings.apiKey.trim()),
     apiKeyPreview: maskApiKey(settings.apiKey),
     configured: isAiConfigured(settings),
+    ...(encryption !== undefined ? { encryptionEnabled: encryption.isEnabled } : {}),
   };
 }
 
@@ -138,10 +173,11 @@ export function normalizeAiSettings(
 ): AiSettings {
   const envProvider = providerOf(envDefaults.AI_PROVIDER, "none");
   const envUrlRes = validateAiBaseUrl(envDefaults.AI_BASE_URL, envProvider);
+  const envKey = envDefaults["AI_API_KEY"]; // pragma: allowlist secret
   const baseDefaults: AiSettings = {
     provider: envProvider,
     baseUrl: envUrlRes.ok ? envUrlRes.url : DEFAULT_AI_SETTINGS.baseUrl,
-    apiKey: typeof envDefaults.AI_API_KEY === "string" ? envDefaults.AI_API_KEY.trim() : "",
+    apiKey: typeof envKey === "string" ? envKey.trim() : "",
     model: typeof envDefaults.AI_MODEL === "string" ? envDefaults.AI_MODEL.trim().slice(0, 120) : "",
     autoExtractOnSave: false,
   };
@@ -153,15 +189,16 @@ export function normalizeAiSettings(
   const provider = providerOf(record.provider, baseDefaults.provider);
   const urlRes = validateAiBaseUrl(record.baseUrl ?? baseDefaults.baseUrl, provider);
   let apiKey = baseDefaults.apiKey;
-  if (typeof record.apiKey === "string") {
-    if (encryption) {
+  if (typeof record.apiKey === "string") { // pragma: allowlist secret
+    const rawStoredKey = record.apiKey.trim();
+    if (!rawStoredKey) {
+      apiKey = "";
+    } else if (encryption?.isEnabled && rawStoredKey.startsWith("enc:")) {
       try {
-        apiKey = encryption.decryptString(record.apiKey).trim();
+        apiKey = encryption.decryptString(rawStoredKey).trim();
       } catch {
         apiKey = "";
       }
-    } else {
-      apiKey = record.apiKey.trim();
     }
   }
   const model =
@@ -216,7 +253,7 @@ export function applyAiSettingsUpdate(
   let apiKey = current.apiKey;
   if (body.clearApiKey === true) {
     apiKey = "";
-  } else if (typeof body.apiKey === "string") {
+  } else if (typeof body.apiKey === "string") { // pragma: allowlist secret
     const trimmed = body.apiKey.trim();
     if (trimmed && !trimmed.startsWith("***")) {
       apiKey = trimmed.slice(0, 512);
@@ -244,10 +281,14 @@ export function serializeAiSettings(
   settings: AiSettings,
   encryption?: EncryptionService,
 ): string {
+  const cleanKey = settings.apiKey.trim();
+  if (cleanKey && !encryption?.isEnabled) {
+    throw new Error(
+      "Set DB_ENCRYPTION_KEY on the server before storing an API key in the database, or set AI_API_KEY in .env.",
+    );
+  }
   const storedKey =
-    settings.apiKey && encryption
-      ? encryption.encryptString(settings.apiKey)
-      : settings.apiKey;
+    cleanKey && encryption?.isEnabled ? encryption.encryptString(cleanKey) : "";
   return JSON.stringify({
     provider: settings.provider,
     baseUrl: settings.baseUrl,
@@ -273,17 +314,62 @@ export function extractJsonFromText(text: string): unknown {
   }
 }
 
-function openAiEndpoint(baseUrl: string, path: string): string {
-  const clean = baseUrl.replace(/\/+$/, "");
-  if (clean.endsWith("/v1")) return `${clean}${path}`;
-  return `${clean}/v1${path}`;
+function openAiChatCompletionsUrl(baseUrl: string): URL {
+  const parsed = parseSafeAiTarget(baseUrl, "openai");
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
+  }
+  const { target } = parsed;
+  if (target.kind === "openai") {
+    return new URL("https://api.openai.com/v1/chat/completions");
+  }
+  if (target.kind === "anthropic") {
+    throw new Error("Anthropic URL cannot be used with OpenAI provider.");
+  }
+  const base =
+    target.host === "localhost"
+      ? target.scheme === "https"
+        ? "https://localhost"
+        : "http://localhost"
+      : target.host === "host.docker.internal"
+        ? target.scheme === "https"
+          ? "https://host.docker.internal"
+          : "http://host.docker.internal"
+        : target.scheme === "https"
+          ? "https://127.0.0.1"
+          : "http://127.0.0.1";
+  const url = new URL("/v1/chat/completions", base);
+  url.port = String(target.port);
+  return url;
 }
 
-function anthropicEndpoint(baseUrl: string): string {
-  const clean = baseUrl.replace(/\/+$/, "");
-  if (clean.endsWith("/v1/messages")) return clean;
-  if (clean.endsWith("/v1")) return `${clean}/messages`;
-  return `${clean}/v1/messages`;
+function anthropicMessagesUrl(baseUrl: string): URL {
+  const parsed = parseSafeAiTarget(baseUrl, "anthropic");
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
+  }
+  const { target } = parsed;
+  if (target.kind === "anthropic") {
+    return new URL("https://api.anthropic.com/v1/messages");
+  }
+  if (target.kind === "openai") {
+    throw new Error("OpenAI URL cannot be used with Anthropic provider.");
+  }
+  const base =
+    target.host === "localhost"
+      ? target.scheme === "https"
+        ? "https://localhost"
+        : "http://localhost"
+      : target.host === "host.docker.internal"
+        ? target.scheme === "https"
+          ? "https://host.docker.internal"
+          : "http://host.docker.internal"
+        : target.scheme === "https"
+          ? "https://127.0.0.1"
+          : "http://127.0.0.1";
+  const url = new URL("/v1/messages", base);
+  url.port = String(target.port);
+  return url;
 }
 
 export async function completeJson<T>(
@@ -302,9 +388,10 @@ export async function completeJson<T>(
     if (settings.apiKey.trim()) {
       headers.authorization = `Bearer ${settings.apiKey.trim()}`;
     }
-    const response = await fetch(openAiEndpoint(settings.baseUrl, "/chat/completions"), {
+    const response = await fetch(openAiChatCompletionsUrl(settings.baseUrl), {
       method: "POST",
       headers,
+      redirect: "error",
       signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model: settings.model,
@@ -327,13 +414,14 @@ export async function completeJson<T>(
     return extractJsonFromText(content) as T;
   }
 
-  const response = await fetch(anthropicEndpoint(settings.baseUrl), {
+  const response = await fetch(anthropicMessagesUrl(settings.baseUrl), {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-api-key": settings.apiKey.trim(),
       "anthropic-version": "2023-06-01",
     },
+    redirect: "error",
     signal: AbortSignal.timeout(timeoutMs),
     body: JSON.stringify({
       model: settings.model,
@@ -458,10 +546,11 @@ export async function runAgentChat(
         payload.tool_choice = "auto";
       }
       const response = await fetch(
-        openAiEndpoint(settings.baseUrl, "/chat/completions"),
+        openAiChatCompletionsUrl(settings.baseUrl),
         {
           method: "POST",
           headers,
+          redirect: "error",
           signal: AbortSignal.timeout(timeoutMs),
           body: JSON.stringify(payload),
         },
@@ -549,13 +638,14 @@ export async function runAgentChat(
   }));
 
   for (let step = 0; step < maxSteps; step += 1) {
-    const response = await fetch(anthropicEndpoint(settings.baseUrl), {
+    const response = await fetch(anthropicMessagesUrl(settings.baseUrl), {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-api-key": settings.apiKey.trim(),
         "anthropic-version": "2023-06-01",
       },
+      redirect: "error",
       signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model: settings.model,

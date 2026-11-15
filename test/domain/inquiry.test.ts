@@ -78,7 +78,10 @@ describe("domain/inquiry", () => {
   it("builds a deterministic due-diligence checklist and German Makler message for a buy flat with missing data", () => {
     const listing = sampleBuyListing();
     const findings = describeFindings(listing.description, 2026);
-    const analysis = analyze(listing, DEFAULT_ASSUMPTIONS, undefined, findings);
+    const analysis = analyze(listing, DEFAULT_ASSUMPTIONS, {
+      findings: findings.items,
+      heatingReplacedYear: findings.heatingReplacedYear,
+    });
     const draft = buildDueDiligenceInquiry({ listing, analysis, findings });
 
     expect(draft.source).toBe("deterministic");
@@ -94,50 +97,63 @@ describe("domain/inquiry", () => {
     expect(draft.messageGerman).toContain("Sonderumlage");
   });
 
-  it("refines an inquiry via LLM when configured", async () => {
+  it("refines an inquiry via LLM when configured and keeps deterministic source if LLM returns empty output", async () => {
     const listing = sampleBuyListing();
     const findings = describeFindings(listing.description, 2026);
-    const analysis = analyze(listing, DEFAULT_ASSUMPTIONS, undefined, findings);
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  checklist: [
-                    {
-                      key: "weg_protocols",
-                      title: "Request WEG protocols",
-                      whyEnglish: "Verify planned roof works and reserve balance.",
-                      questionGerman: "Könnten Sie mir bitte die letzten drei WEG-Protokolle zusenden?",
-                    },
-                  ],
-                  messageGerman:
-                    "Guten Tag,\n\nich interessiere mich für die Wohnung und bitte um die letzten drei WEG-Protokolle.\n\nMit freundlichen Grüßen",
-                }),
+    const analysis = analyze(listing, DEFAULT_ASSUMPTIONS, {
+      findings: findings.items,
+      heatingReplacedYear: findings.heatingReplacedYear,
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    checklist: [
+                      {
+                        key: "weg_protocols",
+                        title: "Request WEG protocols",
+                        whyEnglish: "Verify planned roof works and reserve balance.",
+                        questionGerman: "Könnten Sie mir bitte die letzten drei WEG-Protokolle zusenden?",
+                      },
+                    ],
+                    messageGerman:
+                      "Guten Tag,\n\nich interessiere mich für die Wohnung und bitte um die letzten drei WEG-Protokolle.\n\nMit freundlichen Grüßen",
+                  }),
+                },
               },
-            },
-          ],
-        }),
-    } as Response);
+            ],
+          }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            choices: [{ message: { content: JSON.stringify({}) } }],
+          }),
+      } as Response);
 
-    const refined = await refineInquiryWithLlm(
-      {
-        provider: "openai",
-        baseUrl: "http://127.0.0.1:11434/v1",
-        apiKey: "",
-        model: "qwen2.5:14b",
-        autoExtractOnSave: false,
-      },
-      { listing, analysis, findings },
-    );
+    const settings = {
+      provider: "openai" as const,
+      baseUrl: "http://127.0.0.1:11434/v1",
+      apiKey: "",
+      model: "qwen2.5:14b",
+      autoExtractOnSave: false,
+    };
 
+    const refined = await refineInquiryWithLlm(settings, { listing, analysis, findings });
     expect(refined.source).toBe("llm");
     expect(refined.model).toBe("qwen2.5:14b");
     expect(refined.checklist).toHaveLength(1);
     expect(refined.checklist[0]?.title).toBe("Request WEG protocols");
     expect(refined.messageGerman).toContain("WEG-Protokolle");
+
+    const fallback = await refineInquiryWithLlm(settings, { listing, analysis, findings });
+    expect(fallback.source).toBe("deterministic");
+    expect(fallback.model).toBeNull();
   });
 });
