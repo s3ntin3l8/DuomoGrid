@@ -12,15 +12,19 @@ describe("desk pairing", () => {
     expect(pairHeaders("token", "")).toEqual({});
   });
 
-  it("asks the session before posting, and does not send a leftover token in proxy mode", async () => {
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+  it("asks the session before posting, and the stringified function does not send a leftover token", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
       if (url === "/auth/session") return new Response(JSON.stringify({ mode: "proxy" }), { status: 200 });
-      return new Response(JSON.stringify({ ingestToken: "from-server" }), { status: init?.headers ? 200 : 200 });
+      return new Response(JSON.stringify({ ingestToken: "from-server" }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("localStorage", { getItem: () => "leftover-token" });
 
-    await expect(pairFromPage()).resolves.toEqual({ ok: true, ingestToken: "from-server" });
-    expect(fetchMock).toHaveBeenCalledWith("/auth/pair", { method: "POST", headers: {} });
+    // executeScript runs this source in the page, with no module scope.
+    const injected = Function(`return (${pairFromPage.toString()})`)() as typeof pairFromPage;
+    expect(pairFromPage.toString()).not.toContain("pairHeaders");
+    await expect(injected()).resolves.toEqual({ ok: true, ingestToken: "from-server" });
+    const posted = fetchMock.mock.calls.find((call) => call[0] === "/auth/pair");
+    expect(posted?.[1]).toMatchObject({ method: "POST", headers: {} });
   });
 });
