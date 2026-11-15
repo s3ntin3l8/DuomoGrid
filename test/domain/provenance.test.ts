@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeAssumptions } from "../../src/domain/assumptions.js";
-import { applySuggestion, pinField, refreshAssumptions, suggestionsFor, type MarketSnapshot } from "../../src/domain/suggestions.js";
+import { applySuggestion, pinField, readMarketSnapshot, refreshAssumptions, suggestionsFor, type MarketSnapshot } from "../../src/domain/suggestions.js";
 import { DEFAULT_ASSUMPTIONS, type Assumptions } from "../../src/domain/types.js";
 
 const SNAPSHOT: MarketSnapshot = {
@@ -80,12 +80,31 @@ describe("applySuggestion", () => {
     const next = applySuggestion(DEFAULT_ASSUMPTIONS, "interest", null);
     expect(next.interestPercent).toBe(DEFAULT_ASSUMPTIONS.interestPercent);
   });
+
+  it("accepts each fee field on its own", () => {
+    const suggestions = suggestionsFor(SNAPSHOT);
+    const notary = applySuggestion(DEFAULT_ASSUMPTIONS, "notary", suggestions.notary);
+    expect(notary.notaryPercent).toBe(1.5);
+    expect(notary.notaryProvenance.source).toBe("market");
+    const register = applySuggestion(DEFAULT_ASSUMPTIONS, "register", suggestions.register);
+    expect(register.registerPercent).toBe(0.5);
+    expect(register.registerProvenance.source).toBe("market");
+    const commission = applySuggestion(DEFAULT_ASSUMPTIONS, "commission", suggestions.commission);
+    expect(commission.fallbackCommissionPercent).toBe(3.57);
+    expect(commission.commissionProvenance.source).toBe("market");
+  });
 });
 
 describe("pinField", () => {
   it("marks a value as the owner's own", () => {
     const next = pinField(DEFAULT_ASSUMPTIONS, "interest");
     expect(next.interestProvenance.source).toBe("user");
+  });
+
+  it("pins each fee field on its own", () => {
+    expect(pinField(DEFAULT_ASSUMPTIONS, "notary").notaryProvenance.source).toBe("user");
+    expect(pinField(DEFAULT_ASSUMPTIONS, "register").registerProvenance.source).toBe("user");
+    expect(pinField(DEFAULT_ASSUMPTIONS, "commission").commissionProvenance.source).toBe("user");
   });
 });
 
@@ -120,5 +139,60 @@ describe("refreshAssumptions", () => {
     const moved = refreshAssumptions(base, suggestions);
     expect(moved.interestPercent).toBe(3.91);
     expect(moved.notaryPercent).toBe(2);
+  });
+
+  it("moves the register and the commission when they follow the market", () => {
+    const base: Assumptions = {
+      ...DEFAULT_ASSUMPTIONS,
+      registerPercent: 0.6,
+      registerProvenance: { source: "market", asOf: "2026", note: "GNotKG" },
+      fallbackCommissionPercent: 3.1,
+      commissionProvenance: { source: "market", asOf: "2026", note: "§ 656c BGB" },
+    };
+    const moved = refreshAssumptions(base, suggestions);
+    expect(moved.registerPercent).toBe(0.5);
+    expect(moved.fallbackCommissionPercent).toBe(3.57);
+  });
+});
+
+describe("readMarketSnapshot", () => {
+  const failing = (async () => {
+    throw new Error("no network");
+  }) as unknown as typeof fetch;
+
+  it("reads the rates when there is no GENESIS account", async () => {
+    const snapshot = await readMarketSnapshot(null, failing);
+    // The rates could not be read, so every figure in them is null rather than zero.
+    expect(snapshot.rates?.secured10yPercent).toBeNull();
+    expect(snapshot.energy).toBeNull();
+    expect(snapshot.note).toBeTruthy();
+  });
+
+  it("says that no GENESIS account is configured when only the energy part is missing", async () => {
+    const fetcher = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("genesis.destatis.de")) throw new Error("no account");
+      return new Response('"";name;\n2026-09;3,91;\n', { status: 200 });
+    }) as unknown as typeof fetch;
+    const snapshot = await readMarketSnapshot(null, fetcher);
+    expect(snapshot.rates?.secured10yPercent).toBe(3.91);
+    expect(snapshot.note).toMatch(/DESTATIS_API_TOKEN/);
+  });
+
+  it("says so when the market cannot be read at all", async () => {
+    const snapshot = await readMarketSnapshot(null, failing);
+    expect(snapshot.note).toBeTruthy();
+  });
+
+  it("keeps the rates when only the energy prices fail", async () => {
+    const fetcher = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("genesis.destatis.de")) throw new Error("no account");
+      return new Response('"";name;\n2026-09;3,91;\n', { status: 200 });
+    }) as unknown as typeof fetch;
+    const snapshot = await readMarketSnapshot({ username: "token" }, fetcher);
+    expect(snapshot.rates?.secured10yPercent).toBe(3.91);
+    expect(snapshot.energy).toBeNull();
+    expect(snapshot.note).toMatch(/energy prices could not be read/);
   });
 });
