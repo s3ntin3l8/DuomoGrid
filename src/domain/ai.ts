@@ -152,6 +152,8 @@ export function toPublicAiSettings(
   encryption?: EncryptionService,
 ): AiSettingsPublic {
   const hasApiKey = Boolean(settings.apiKey.trim());
+  // Hand-built AiSettings objects without apiKeySource default to "db" so they
+  // follow the stored-key path (matching serializeAiSettings's encryption gate).
   const source: "db" | "env" | "none" = hasApiKey // pragma: allowlist secret
     ? (settings.apiKeySource ?? "db") // pragma: allowlist secret
     : "none"; // pragma: allowlist secret
@@ -271,10 +273,14 @@ export function applyAiSettingsUpdate(
   let apiKeySource: "db" | "env" | "none" = // pragma: allowlist secret
     current.apiKeySource ?? (current.apiKey.trim() ? "db" : "none"); // pragma: allowlist secret
   if (body.clearApiKey === true) {
-    if (apiKeySource !== "env") { // pragma: allowlist secret
-      apiKey = "";
-      apiKeySource = "none"; // pragma: allowlist secret
+    if (apiKeySource === "env") { // pragma: allowlist secret
+      return {
+        ok: false,
+        error: "The active API key comes from AI_API_KEY in .env and cannot be cleared from the database.",
+      };
     }
+    apiKey = "";
+    apiKeySource = "none"; // pragma: allowlist secret
   } else if (typeof body.apiKey === "string") { // pragma: allowlist secret
     const trimmed = body.apiKey.trim();
     if (trimmed && !trimmed.startsWith("***")) {

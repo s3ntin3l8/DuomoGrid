@@ -135,7 +135,7 @@ describe("routes/ai", () => {
       encryptionEnabled: false,
     });
 
-    // Sending clearApiKey: true on an env-only key does not disable the .env key
+    // Sending clearApiKey: true on an env-only key returns 400 explaining the key comes from AI_API_KEY
     const clearEnvRes = await appNoEnc.inject({
       method: "PUT",
       url: "/ai/settings",
@@ -147,13 +147,8 @@ describe("routes/ai", () => {
         clearApiKey: true,
       },
     });
-    expect(clearEnvRes.statusCode).toBe(200);
-    expect(clearEnvRes.json()).toMatchObject({
-      hasApiKey: true,
-      apiKeyPreview: "***...7788",
-      apiKeySource: "env", // pragma: allowlist secret
-      configured: true,
-    });
+    expect(clearEnvRes.statusCode).toBe(400);
+    expect(clearEnvRes.json().error).toMatch(/AI_API_KEY/);
 
     const rowNoEnc = appNoEnc.db.select().from(settings).where(eq(settings.key, "ai")).get();
     expect(JSON.parse(rowNoEnc?.value ?? "{}").apiKey).toBe("");
