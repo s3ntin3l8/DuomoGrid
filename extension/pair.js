@@ -1,16 +1,7 @@
 /**
- * Headers for POST /auth/pair. A leftover token must not be sent in proxy mode:
- * any Authorization header is the token path, so a stale token 401s a signed-in desk.
- */
-export function pairHeaders(mode, storedToken) {
-  if (mode === "proxy" || !storedToken) return {};
-  return { authorization: `Bearer ${storedToken}` };
-}
-
-/**
  * Runs in the desk page via executeScript, which stringifies this function and
- * drops the module. The header rule is inlined on purpose: a call to pairHeaders
- * would throw ReferenceError in the page.
+ * drops the module. The header rule stays inline: a leftover token must not be
+ * sent in proxy mode, because any Authorization header is the token path.
  */
 export async function pairFromPage() {
   const sessionResponse = await fetch("/auth/session", { signal: AbortSignal.timeout(3000) });
