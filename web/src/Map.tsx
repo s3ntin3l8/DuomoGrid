@@ -170,6 +170,7 @@ export function ListingMap({
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markers = useRef(new Map<string, maplibregl.Marker>());
+  const tooltips = useRef(new Map<string, maplibregl.Popup>());
   const signatures = useRef(new Map<string, string>());
   /** The listing's own point, which a spread pin does not change. */
   const truth = useRef(new Map<string, [number, number]>());
@@ -203,7 +204,9 @@ export function ListingMap({
       const offsets = cluster.length < 2 ? [{ dx: 0, dy: 0 }] : spreadOffsets(cluster.length);
       cluster.forEach((entry, index) => {
         const { dx, dy } = offsets[index] ?? { dx: 0, dy: 0 };
+        // The overlay is anchored on the true point, so it has to move with the drawn pin.
         entry.marker.setOffset([dx, dy]);
+        entry.marker.getPopup()?.setOffset([dx + 18, dy]);
       });
     }
   }, []);
@@ -229,6 +232,8 @@ export function ListingMap({
       gone = true;
       markers.current.forEach((marker) => marker.remove());
       markers.current.clear();
+      tooltips.current.forEach((tooltip) => tooltip.remove());
+      tooltips.current.clear();
       signatures.current.clear();
       map.remove();
       mapRef.current = null;
@@ -243,6 +248,8 @@ export function ListingMap({
       const ids = new Set(pins.map((row) => row.id));
       for (const [id, marker] of markers.current) {
         if (!ids.has(id)) {
+          tooltips.current.get(id)?.remove();
+          tooltips.current.delete(id);
           marker.remove();
           markers.current.delete(id);
           signatures.current.delete(id);
@@ -260,6 +267,8 @@ export function ListingMap({
         const signature = `${className}:${label}:${approximate}`;
         let marker = markers.current.get(row.id);
         if (marker && signatures.current.get(row.id) !== signature) {
+          tooltips.current.get(row.id)?.remove();
+          tooltips.current.delete(row.id);
           marker.remove();
           markers.current.delete(row.id);
           marker = undefined;
@@ -286,24 +295,32 @@ export function ListingMap({
             )
             .addTo(map);
           const element = marker.getElement();
+          const hideTooltip = () => {
+            tooltips.current.get(id)?.remove();
+            tooltips.current.delete(id);
+          };
           // The pin is a button, so it is reachable by keyboard. The map opens the
           // popup on a click that lands on the marker, so there is no click handler
-          // here: a second one would toggle the popup twice and leave it closed.
+          // that also toggles: a second one would leave the overlay closed.
           element.addEventListener("mouseenter", () => {
             if (marker?.getPopup()?.isOpen()) return;
-            map.getContainer().querySelectorAll(".map-tooltip-popup").forEach((node) => node.remove());
+            hideTooltip();
             const at = marker?.getLngLat();
-            const tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 20, className: "map-tooltip-popup" })
-              .setLngLat(at ? [at.lng, at.lat] : next)
+            if (!at) return;
+            const shift = marker?.getOffset();
+            const tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: [shift?.x ?? 0, (shift?.y ?? 0) - 28], className: "map-tooltip-popup" })
+              .setLngLat(at)
               .setDOMContent(tooltipNode(currentRow()));
             tooltip.addTo(map);
+            tooltips.current.set(id, tooltip);
           });
-          element.addEventListener("mouseleave", () => {
-            map.getContainer().querySelectorAll(".map-tooltip-popup").forEach((node) => node.remove());
-          });
+          element.addEventListener("mouseleave", hideTooltip);
           // The overlay takes the pin's place, so the hover preview goes away with it.
-          element.addEventListener("click", () => {
-            map.getContainer().querySelectorAll(".map-tooltip-popup").forEach((node) => node.remove());
+          // A keyboard activation synthesises a click (detail 0). keydown already toggled
+          // the overlay, so that click must not reach the map's second toggle.
+          element.addEventListener("click", (event) => {
+            hideTooltip();
+            if (event.detail === 0) event.stopPropagation();
           });
           const savePoint = () => {
             const at = marker?.getLngLat();
@@ -317,16 +334,26 @@ export function ListingMap({
             });
           };
           element.addEventListener("keydown", (event) => {
+            // Enter and Space: preventDefault stops the button's synthetic click and the
+            // marker's own keypress toggle, so the overlay opens once instead of twice.
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              hideTooltip();
+              marker?.togglePopup();
+              return;
+            }
             // Escape closes the overlay. The focus stays on the pin, so the map's own
             // handling does not see the key.
             if (event.key === "Escape") {
-              if (!marker?.getPopup()?.isOpen()) return;
               event.stopPropagation();
+              if (!marker?.getPopup()?.isOpen()) return;
               marker.getPopup()?.remove();
               return;
             }
             // A pin with its own element cannot be dragged with the arrow keys, so the
             // keyboard moves it here. One press is one screen pixel; shift makes it ten.
+            // stopPropagation keeps the map from panning (and Shift+Arrow from rotating).
             // The save waits for the key to be released, so holding the key does not
             // write a point on every repeat.
             const pixels = event.shiftKey ? 10 : 1;
@@ -339,6 +366,7 @@ export function ListingMap({
             const delta = deltas[event.key];
             if (!delta || !marker) return;
             event.preventDefault();
+            event.stopPropagation();
             const at = marker.getLngLat();
             const point = map.project(at);
             const moved = map.unproject([point.x + delta[0], point.y + delta[1]]);
@@ -348,6 +376,7 @@ export function ListingMap({
           });
           element.addEventListener("keyup", (event) => {
             if (!event.key.startsWith("Arrow")) return;
+            event.stopPropagation();
             savePoint();
           });
           element.addEventListener("blur", savePoint);

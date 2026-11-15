@@ -59,14 +59,18 @@ export function clustersOf<T extends PinPoint>(points: T[], radius = CLUSTER_RAD
   return [...groups.values()];
 }
 
+/** A pin is 30 px. Adjacent pins in a fan need at least this much space between centres. */
+export const PIN_CLEARANCE = 36;
+
 /**
- * Where a pin in a group is drawn, relative to the group's centre. The group is fanned
- * out on a circle, so the pins do not cover each other.
+ * Where a pin in a group is drawn, relative to the group's centre. The radius grows
+ * with the count, so the chord between neighbours stays at least a pin apart.
  */
-export function spreadOffsets(count: number, radius = CLUSTER_RADIUS): { dx: number; dy: number }[] {
+export function spreadOffsets(count: number): { dx: number; dy: number }[] {
+  if (count < 2) return [];
+  const distance = PIN_CLEARANCE / 2 / Math.sin(Math.PI / count);
   return Array.from({ length: count }, (_, index) => {
     const angle = (2 * Math.PI * index) / count;
-    const distance = radius * 0.62;
     return { dx: Math.cos(angle) * distance, dy: Math.sin(angle) * distance };
   });
 }

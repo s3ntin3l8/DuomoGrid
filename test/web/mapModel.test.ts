@@ -82,4 +82,14 @@ describe("the spread", () => {
     const distances = offsets.map((offset) => Math.hypot(offset.dx, offset.dy).toFixed(3));
     expect(new Set(distances).size).toBe(1);
   });
+
+  it("keeps a group of six a pin apart, not piled on a fixed circle", () => {
+    const offsets = spreadOffsets(6);
+    for (let index = 0; index < offsets.length; index += 1) {
+      const next = offsets[(index + 1) % offsets.length];
+      const current = offsets[index];
+      if (!next || !current) continue;
+      expect(Math.hypot(next.dx - current.dx, next.dy - current.dy)).toBeGreaterThanOrEqual(35.9);
+    }
+  });
 });
