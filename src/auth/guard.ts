@@ -1,13 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
-import proxyAddr from "@fastify/proxy-addr";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 
 // A client must not be able to point the trusted header at the bearer header,
 // a cookie, or a forwarding header and skip the token compare.
 const DENIED_HEADERS = new Set(["authorization", "cookie", "host", "forwarded"]);
 const HEADER_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
-
-let warnedBadHeader = false;
 
 function authorized(header: string, expected: string): boolean {
   const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
@@ -25,22 +22,27 @@ function acceptedIdentityHeader(raw: string | undefined): string {
   return name;
 }
 
+/**
+ * A non-empty name that is not a real header stops the server at boot, the
+ * same way an invalid TRUST_PROXY does. An empty name leaves the token gate
+ * unchanged. Called from buildApp after the env plugin, before the database.
+ */
+export function assertTrustedAuthHeader(raw: string | undefined): void {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed || acceptedIdentityHeader(trimmed)) return;
+  throw new Error(
+    `Invalid TRUSTED_AUTH_HEADER "${trimmed}": expected a header name other than authorization, cookie, host, forwarded, or x-forwarded-*`,
+  );
+}
+
 function identityHeaderName(app: FastifyInstance): string {
-  const raw = app.config.TRUSTED_AUTH_HEADER;
-  const name = acceptedIdentityHeader(raw);
-  if (!name && raw.trim() && !warnedBadHeader) {
-    warnedBadHeader = true;
-    app.log.warn("TRUSTED_AUTH_HEADER is not a usable header name; proxy auth stays off");
-  }
-  return name;
+  return acceptedIdentityHeader(app.config.TRUSTED_AUTH_HEADER);
 }
 
 function peerTrusted(app: FastifyInstance, remote: string | undefined): boolean {
-  const addresses = app.proxyAddresses;
-  if (!addresses || addresses.length === 0 || !remote) return false;
+  if (!remote || !app.trustedPeer) return false;
   try {
-    // compile() is the same matcher Fastify uses, so ::ffff: mapping agrees.
-    return proxyAddr.compile([...addresses])(remote, 0);
+    return app.trustedPeer(remote, 0);
   } catch {
     return false;
   }

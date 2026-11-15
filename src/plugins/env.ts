@@ -150,5 +150,10 @@ declare module "fastify" {
      * `app.config`. Identity-header auth reads this, not `request.ip`.
      */
     proxyAddresses: readonly string[] | null;
+    /**
+     * `proxyAddresses` compiled once at boot, or null when there is no address
+     * list. The guard calls this instead of compiling on every request.
+     */
+    trustedPeer: ((address: string, hop: number) => boolean) | null;
   }
 }

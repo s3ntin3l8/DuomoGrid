@@ -238,7 +238,9 @@ async function request<T>(token: string, path: string, init?: RequestInit): Prom
 }
 
 export function loadSession() {
-  return request<AuthSession>("", "/auth/session");
+  // A stalling proxy must not pin the desk on "Opening the desk…". The catch
+  // falls back to the token gate.
+  return request<AuthSession>("", "/auth/session", { signal: AbortSignal.timeout(3000) });
 }
 
 export function loadListings(token: string) {

@@ -168,23 +168,11 @@ describe("ingest guard", () => {
     await app.close();
   });
 
-  it("does not honour a trusted-header setting that names Authorization or a forwarding header", async () => {
-    for (const header of ["Authorization", "X-Forwarded-For", "cookie"]) {
-      const app = await appWith({
-        token: "test-token",
-        trust: "10.0.0.0/8",
-        header,
-      });
-      const response = await app.inject({
-        method: "GET",
-        url: "/listings",
-        remoteAddress: "10.0.0.5",
-        headers: { [header.toLowerCase()]: "ada" },
-      });
-      expect(response.statusCode).toBe(401);
-      const session = await app.inject({ method: "GET", url: "/auth/session" });
-      expect(session.json()).toEqual({ mode: "token" });
-      await app.close();
+  it("refuses to boot when the trusted header is not a usable name", async () => {
+    for (const header of ["Authorization", "X-Forwarded-For", "cookie", "not a header"]) {
+      await expect(
+        appWith({ token: "test-token", trust: "10.0.0.0/8", header }),
+      ).rejects.toThrow(/TRUSTED_AUTH_HEADER/);
     }
   });
 });

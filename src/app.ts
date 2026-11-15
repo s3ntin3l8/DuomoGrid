@@ -3,6 +3,8 @@ import path from "node:path";
 import Fastify from "fastify";
 import sensible from "@fastify/sensible";
 import fastifyStatic from "@fastify/static";
+import proxyAddr from "@fastify/proxy-addr";
+import { assertTrustedAuthHeader } from "./auth/guard.js";
 import { envPlugin, parseTrustProxy, proxyAddressList } from "./plugins/env.js";
 import { loggingPlugin } from "./plugins/logging.js";
 import { securityPlugin } from "./plugins/security.js";
@@ -20,15 +22,24 @@ export async function buildApp() {
   // The same value is decorated for the guard: identity-header auth must not
   // re-parse the env and disagree with what Fastify actually trusted.
   const trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
+  const addresses = proxyAddressList(trustProxy);
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL || "info",
     },
     trustProxy,
   });
-  app.decorate("proxyAddresses", proxyAddressList(trustProxy));
+  app.decorate("proxyAddresses", addresses);
+  // Same matcher Fastify uses, compiled once. ::ffff: mapping stays in agreement.
+  app.decorate("trustedPeer", addresses && addresses.length > 0 ? proxyAddr.compile([...addresses]) : null);
 
   await app.register(envPlugin);
+  try {
+    assertTrustedAuthHeader(app.config.TRUSTED_AUTH_HEADER);
+  } catch (err) {
+    await app.close();
+    throw err;
+  }
   await app.register(loggingPlugin);
   await app.register(sensible);
   await app.register(securityPlugin);
