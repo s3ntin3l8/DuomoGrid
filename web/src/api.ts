@@ -188,7 +188,15 @@ export type DeskListing = {
   } | null;
 };
 
+export type AuthSession = { mode: "token" | "proxy" };
+
 const TOKEN_KEY = "duomo.token";
+
+/** Bearer header, or nothing. An empty token must not send `Bearer `, or the proxy routes it past forward-auth. */
+export function authHeaders(token: string): Record<string, string> {
+  if (!token) return {};
+  return { authorization: `Bearer ${token}` };
+}
 
 export function storedToken(): string {
   return localStorage.getItem(TOKEN_KEY) ?? "";
@@ -211,7 +219,7 @@ async function request<T>(token: string, path: string, init?: RequestInit): Prom
   const response = await fetch(path, {
     ...init,
     headers: {
-      authorization: `Bearer ${token}`,
+      ...authHeaders(token),
       ...(init?.body ? { "content-type": "application/json" } : {}),
       ...init?.headers,
     },
@@ -227,6 +235,12 @@ async function request<T>(token: string, path: string, init?: RequestInit): Prom
     throw new ApiError(response.status, message);
   }
   return (await response.json()) as T;
+}
+
+export function loadSession() {
+  // A stalling proxy must not pin the desk on "Opening the desk…". The catch
+  // falls back to the token gate.
+  return request<AuthSession>("", "/auth/session", { signal: AbortSignal.timeout(3000) });
 }
 
 export function loadListings(token: string) {

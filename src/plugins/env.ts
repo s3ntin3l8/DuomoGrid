@@ -44,6 +44,12 @@ const schema = {
       type: "string",
       default: "",
     },
+    // Header a forward-auth proxy sets. Empty leaves the bearer gate unchanged.
+    // Honoured only together with an address-list TRUST_PROXY; see the guard.
+    TRUSTED_AUTH_HEADER: {
+      type: "string",
+      default: "",
+    },
   },
 };
 
@@ -91,6 +97,17 @@ export function parseTrustProxy(
   return entries;
 }
 
+/**
+ * Identity-header auth trusts only an address list. `true` and a hop count
+ * trust the socket peer unconditionally, so a direct caller could forge the
+ * header. Returns null for those forms.
+ */
+export function proxyAddressList(
+  trust: ReturnType<typeof parseTrustProxy>,
+): readonly string[] | null {
+  return Array.isArray(trust) ? trust : null;
+}
+
 const PROXY_KEYWORDS = new Set(["loopback", "linklocal", "uniquelocal"]);
 
 function isValidProxyEntry(entry: string): boolean {
@@ -124,6 +141,19 @@ declare module "fastify" {
       RATE_LIMIT_MAX: number;
       RATE_LIMIT_WINDOW: string;
       INGEST_TOKEN: string;
+      TRUSTED_AUTH_HEADER: string;
     };
+    /**
+     * Address list passed to Fastify as `trustProxy`, or null when that option
+     * is off, `true`, or a hop count. Set in `buildApp` from the same value,
+     * because Fastify freezes `trustProxy` at construction and it is not on
+     * `app.config`. Identity-header auth reads this, not `request.ip`.
+     */
+    proxyAddresses: readonly string[] | null;
+    /**
+     * `proxyAddresses` compiled once at boot, or null when there is no address
+     * list. The guard calls this instead of compiling on every request.
+     */
+    trustedPeer: ((address: string, hop: number) => boolean) | null;
   }
 }
