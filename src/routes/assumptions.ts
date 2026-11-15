@@ -8,6 +8,8 @@ import { settings } from "../db/schema.js";
 
 /** How long a market snapshot is reused before it is fetched again. */
 const SNAPSHOT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+/** How long a failed read is remembered before it is tried again. */
+const FAILED_RETRY_MS = 5 * 60 * 1000;
 
 export async function assumptionsRoute(app: FastifyInstance) {
   installIngestGuard(app, "/assumptions");
@@ -80,6 +82,9 @@ export async function assumptionsRoute(app: FastifyInstance) {
       return fresh;
     }
     const fallback = knownSnapshot();
+    // The failed read is cached too, so an offline host does not pay the timeout on every
+    // request. The retry window is short, because the market may come back at any moment.
+    cached = { snapshot: fallback ?? { rates: null, energy: null, fetchedAt: new Date().toISOString(), note: null }, at: Date.now() - (SNAPSHOT_MAX_AGE_MS - FAILED_RETRY_MS) };
     if (fallback) {
       return {
         ...fallback,

@@ -232,6 +232,21 @@ describe("routes/assumptions", () => {
     await app.close();
   });
 
+  it("does not ask the market again straight away after a failed read", async () => {
+    const failing = vi.fn(async () => new Response("boom", { status: 500 }));
+    vi.stubGlobal("fetch", failing);
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    await app.inject({ method: "GET", url: "/assumptions", headers });
+    const callsAfterFirst = failing.mock.calls.length;
+    expect(callsAfterFirst).toBeGreaterThan(0);
+    // The failure is remembered, so the next request does not pay the timeout again.
+    await app.inject({ method: "GET", url: "/assumptions", headers });
+    expect(failing.mock.calls.length).toBe(callsAfterFirst);
+    await app.close();
+  });
+
   it("marks a value the owner pinned as theirs even when a figure was accepted first", async () => {
     stubMarketFetch();
     process.env.INGEST_TOKEN = "test-token";

@@ -45,7 +45,7 @@ function makeZip(name: string, content: string, method: 0 | 8 = 8): Uint8Array {
 }
 
 const CSV = `time;1_variable_attribute_label;2_variable_attribute_label;3_variable_attribute_label;value
-2026;1. Halbjahr;Durchschnittspreise inkl. Steuern, Abgaben, Umlagen;2500 bis unter 5 000 KWh;0,3797
+2026;1. Halbjahr;Durchschnittspreise inkl. Steuern, Abgaben, Umlagen;2 500 bis unter 5 000 KWh;0,3797
 `;
 
 describe("readZipCsv", () => {

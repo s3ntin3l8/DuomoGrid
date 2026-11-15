@@ -17,9 +17,13 @@ const TIMEOUT_MS = 15_000;
 /**
  * The consumption class a household heating figure comes from. Destatis publishes a price per
  * class; the class that matches a home's own use is the one that should stand in for it.
+ *
+ * Destatis writes the thousands with a space ("2 500"), so the labels are matched on the digits
+ * with the spaces removed. A literal that carries the spacing exactly would silently stop
+ * matching the day the publisher changes a label.
  */
-export const ELECTRICITY_CLASS = "2500 bis unter 5 000 KWh";
-export const GAS_CLASS = "5600 bis unter 55 600 KWh";
+export const ELECTRICITY_CLASS = "2500 bis unter 5000 KWh";
+export const GAS_CLASS = "5600 bis unter 55600 KWh";
 
 export type EnergyPrices = {
   /** The half-year the prices belong to, as "YYYY-H1" or "YYYY-H2". */
@@ -107,6 +111,17 @@ function genesisNumber(raw: string): number | null {
 }
 
 /**
+ * Compare a class label from the table with the one this module wants.
+ *
+ * Destatis writes the thousands with a space ("2 500 bis unter 5 000 KWh"), and the spacing is
+ * not part of the class. Both sides are compared without spaces, so a label that is written
+ * differently still matches.
+ */
+function sameClass(label: string, wanted: string): boolean {
+  return label.replace(/\s+/g, "").toLowerCase() === wanted.replace(/\s+/g, "").toLowerCase();
+}
+
+/**
  * Find the column that carries a variable's label. A flat file has both a code column and a label
  * column for each variable; the label is the readable one.
  */
@@ -159,7 +174,7 @@ export function findGenesisPrice(rows: string[][], consumptionClass: string): Ge
   if (classIndex < 0) return null;
   let best: GenesisPrice | null = null;
   for (const row of rows.slice(1)) {
-    if (!(row[classIndex] ?? "").includes(consumptionClass)) continue;
+    if (!sameClass(row[classIndex] ?? "", consumptionClass)) continue;
     const kind = kindIndex >= 0 ? (row[kindIndex] ?? "") : "";
     // Only the price including taxes, levies and surcharges is what a household pays.
     if (kind && !kind.includes("inkl")) continue;
