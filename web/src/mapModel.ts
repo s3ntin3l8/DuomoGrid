@@ -27,8 +27,14 @@ export function pinLook(row: DeskListing): PinLook {
 /** A point on the screen, with the listing it belongs to. */
 export type PinPoint = { id: string; x: number; y: number };
 
-/** How far apart two pins have to sit before they count as separate. */
+/** How far apart two pins have to sit before they count as separate, before any spread. */
 export const CLUSTER_RADIUS = 34;
+
+/** A spread pin stays within this of its building. Further than this is a neighbouring street. */
+export const FAN_CAP = 52;
+
+/** Clusters are grouped at least this far apart, so one fan cannot reach the next. */
+export const SPREAD_CLUSTER_RADIUS = FAN_CAP * 2 + 8;
 
 /**
  * The pins that sit on top of each other. Each group gets its own pin drawn apart from
@@ -62,15 +68,33 @@ export function clustersOf<T extends PinPoint>(points: T[], radius = CLUSTER_RAD
 /** A pin is 30 px. Adjacent pins in a fan need at least this much space between centres. */
 export const PIN_CLEARANCE = 36;
 
+function ring(count: number, radius: number, turn = 0): { dx: number; dy: number }[] {
+  return Array.from({ length: count }, (_, index) => {
+    const angle = turn + (2 * Math.PI * index) / count;
+    return { dx: Math.cos(angle) * radius, dy: Math.sin(angle) * radius };
+  });
+}
+
+/** How many pins fit on a ring of this radius without covering each other. */
+function pinsOnRing(radius: number): number {
+  if (radius * 2 < PIN_CLEARANCE) return 1;
+  const sine = Math.min(1, PIN_CLEARANCE / (2 * radius));
+  return Math.max(1, Math.floor(Math.PI / Math.asin(sine)));
+}
+
 /**
- * Where a pin in a group is drawn, relative to the group's centre. The radius grows
- * with the count, so the chord between neighbours stays at least a pin apart.
+ * Where a pin in a group is drawn, relative to the group's centre. One ring while that
+ * stays inside the cap; a second ring after that. Nothing is drawn further than the cap,
+ * so a large group stays on its building instead of reaching the next street.
  */
 export function spreadOffsets(count: number): { dx: number; dy: number }[] {
   if (count < 2) return [];
-  const distance = PIN_CLEARANCE / 2 / Math.sin(Math.PI / count);
-  return Array.from({ length: count }, (_, index) => {
-    const angle = (2 * Math.PI * index) / count;
-    return { dx: Math.cos(angle) * distance, dy: Math.sin(angle) * distance };
-  });
+  const single = PIN_CLEARANCE / 2 / Math.sin(Math.PI / count);
+  if (single <= FAN_CAP) return ring(count, single);
+  const outerCount = Math.min(count - 1, pinsOnRing(FAN_CAP));
+  const innerCount = count - outerCount;
+  const outer = ring(outerCount, FAN_CAP);
+  if (innerCount === 1) return [...outer, { dx: 0, dy: 0 }];
+  const innerRadius = Math.min(FAN_CAP - PIN_CLEARANCE, PIN_CLEARANCE / 2 / Math.sin(Math.PI / innerCount));
+  return [...outer, ...ring(innerCount, Math.max(innerRadius, 1), Math.PI / innerCount)];
 }

@@ -4,7 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DeskListing } from "./api";
 import { eur, num, perM2Text } from "./format";
-import { clustersOf, pinLook, spreadOffsets } from "./mapModel";
+import { clustersOf, pinLook, SPREAD_CLUSTER_RADIUS, spreadOffsets } from "./mapModel";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -198,7 +198,7 @@ export function ListingMap({
     });
     const entries = live.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     if (entries.length === 0) return;
-    for (const cluster of clustersOf(entries)) {
+    for (const cluster of clustersOf(entries, SPREAD_CLUSTER_RADIUS)) {
       // A pin on its own goes back to its point. A zoom that pulls a group apart
       // must not leave the old spread in place.
       const offsets = cluster.length < 2 ? [{ dx: 0, dy: 0 }] : spreadOffsets(cluster.length);
@@ -315,12 +315,20 @@ export function ListingMap({
             tooltips.current.set(id, tooltip);
           });
           element.addEventListener("mouseleave", hideTooltip);
+          // Set when Enter or Space handled the toggle, so the synthetic click that may
+          // follow does not toggle again. A click with no keydown — a screen reader, or
+          // element.click() — still has to open the overlay itself.
+          let fromKey = false;
           // The overlay takes the pin's place, so the hover preview goes away with it.
-          // A keyboard activation synthesises a click (detail 0). keydown already toggled
-          // the overlay, so that click must not reach the map's second toggle.
           element.addEventListener("click", (event) => {
             hideTooltip();
-            if (event.detail === 0) event.stopPropagation();
+            if (event.detail !== 0) return;
+            event.stopPropagation();
+            if (fromKey) {
+              fromKey = false;
+              return;
+            }
+            marker?.togglePopup();
           });
           const savePoint = () => {
             const at = marker?.getLngLat();
@@ -339,6 +347,9 @@ export function ListingMap({
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
               event.stopPropagation();
+              fromKey = true;
+              // A held key repeats. One press is one toggle, or the card flickers.
+              if (event.repeat) return;
               hideTooltip();
               marker?.togglePopup();
               return;
@@ -375,6 +386,10 @@ export function ListingMap({
             truth.current.set(id, nextPoint);
           });
           element.addEventListener("keyup", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              fromKey = false;
+              return;
+            }
             if (!event.key.startsWith("Arrow")) return;
             event.stopPropagation();
             savePoint();

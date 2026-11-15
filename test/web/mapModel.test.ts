@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scoreBand } from "../../web/src/format.js";
-import { clustersOf, pinLook, spreadOffsets, type PinPoint } from "../../web/src/mapModel.js";
+import { clustersOf, FAN_CAP, pinLook, SPREAD_CLUSTER_RADIUS, spreadOffsets, type PinPoint } from "../../web/src/mapModel.js";
 import type { DeskListing } from "../../web/src/api.js";
 
 function listing(overrides: {
@@ -91,5 +91,16 @@ describe("the spread", () => {
       if (!next || !current) continue;
       expect(Math.hypot(next.dx - current.dx, next.dy - current.dy)).toBeGreaterThanOrEqual(35.9);
     }
+  });
+
+  it("keeps a large group inside the cap, on two rings, so it cannot reach the next cluster", () => {
+    const offsets = spreadOffsets(12);
+    expect(offsets).toHaveLength(12);
+    const radii = new Set(offsets.map((offset) => Math.hypot(offset.dx, offset.dy).toFixed(1)));
+    expect(radii.size).toBeGreaterThan(1);
+    for (const offset of offsets) {
+      expect(Math.hypot(offset.dx, offset.dy)).toBeLessThanOrEqual(FAN_CAP + 0.01);
+    }
+    expect(SPREAD_CLUSTER_RADIUS).toBeGreaterThan(FAN_CAP * 2);
   });
 });
