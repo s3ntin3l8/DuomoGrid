@@ -1,0 +1,1 @@
+ALTER TABLE `listings` ADD `llm_extraction_json` text;

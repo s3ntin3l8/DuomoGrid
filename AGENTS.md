@@ -37,8 +37,8 @@ This repo's correctness invariants live in `.claude/skills/duomogrid/SKILL.md`. 
 - **Pre-push gate:** `make lint && make typecheck && make test`. There is no format target. `.prettierrc` exists, but no script, hook or CI step runs Prettier. `make typecheck` checks both the server (`tsconfig.json`) and the desk (`web/tsconfig.json`).
 - **Hooks:** `make install-hooks` needs `pre-commit` on PATH. pre-commit runs detect-secrets, whitespace/YAML/JSON checks and ESLint. pre-push runs typecheck and the tests.
 - **Fresh worktree:** `make install` (`npm ci`), then `make build`. The build compiles the server to `dist/` and the desk to `web/dist/`.
-- **Local UI work:** run `make dev` (API on :3000) and `npm run dev:web` (desk on :5173, which proxies `/listings`, `/assumptions` and `/auth`). Locally the desk pastes `INGEST_TOKEN` and sends `Authorization: Bearer`. A deployed desk omits that header when `TRUSTED_AUTH_HEADER` is set and `TRUST_PROXY` is an address list; the proxy's identity header is then enough. Without `INGEST_TOKEN` set, those routes return 503 either way.
-- **npm-only scripts:** `npm run db:generate` (after `src/db/schema.ts` edits), `npm run db:seed`, `npm run dev:web`.
+- **Local UI work:** run `make dev` (API on :3000) and `npm run dev:web` (desk on :5173, which proxies `/listings`, `/assumptions`, `/auth`, `/ai` and `/mcp`). Locally the desk pastes `INGEST_TOKEN` and sends `Authorization: Bearer`. A deployed desk omits that header when `TRUSTED_AUTH_HEADER` is set and `TRUST_PROXY` is an address list; the proxy's identity header is then enough. Without `INGEST_TOKEN` set, those routes return 503 either way.
+- **npm-only scripts:** `npm run db:generate` (after `src/db/schema.ts` edits), `npm run db:seed`, `npm run dev:web`, `npm run mcp` (local stdio MCP server).
 - **Releases:** Release Please cuts versions and `CHANGELOG.md` from Conventional Commit titles on `main`. Don't hand-edit `CHANGELOG.md` or `.release-please-manifest.json`.
 - **CI:** `ci-cd.yml` runs `ci-node` (`npm ci`, lint, `test:coverage` with `strict-checks`, Codecov upload) and then `build-docker`, which publishes `s3ntin3l8/duomogrid`. `hermes.yml` is the AI PR reviewer, running on a self-hosted runner.
 - **detect-secrets** runs on changed files only. It matches a known secret by filename, hash and type, but the hook rewrites the baseline's line numbers and fails until the baseline is refreshed. A change that shifts lines in a baselined file therefore needs `.secrets.baseline` regenerated in the same change (`detect-secrets scan > .secrets.baseline`, after vetting new detections).
@@ -80,11 +80,17 @@ startup. `build-docker` needs `contents: read` + `packages: write` +
 - **Routes** (`src/routes/`): each exports an `async (app) => {}` plugin. `health`
   has `/health` (liveness) and `/ready` (DB ping). `users` is the example CRUD
   demonstrating `app.db` + `app.encryption` + JSON-schema validation.
-  Product routes: `listings` (ingest/upsert, list, detail, PATCH notes/status) and `assumptions`
-  (GET/PUT financing assumptions). Both are guarded by `src/auth/guard.ts`. `root` serves the built desk.
+  Product routes: `listings` (ingest/upsert, list, detail, PATCH notes/status), `assumptions`
+  (GET/PUT financing assumptions), `ai` (GET/PUT AI provider settings, provider test, LLM extraction,
+  Makler inquiry generation, and in-desk chat), and `mcp` (Streamable HTTP Model Context Protocol endpoint).
+  All four are guarded by `src/auth/guard.ts`. `root` serves the built desk.
 - **Domain** (`src/domain/`): `ingest` (normalizes extension payloads), `analyze` (costs, financing,
   energy, flags, score), `compare` (cohort medians, rent-versus-buy), `reference` (states, postal
-  codes, city benchmarks), `assumptions`, `types`.
+  codes, city benchmarks), `describe` (regex + LLM description extraction and missing-field merge),
+  `ai` (OpenAI-compatible and Anthropic adapters), `inquiry` (due-diligence & German Makler drafts),
+  `assumptions`, `types`.
+- **MCP** (`src/mcp/`): `tools` (shared deterministic tool definitions and executors), `server`
+  (JSON-RPC 2.0 MCP handler), `stdio` (`npm run mcp` local stdio runner).
 - **DB** (`src/db/`): Drizzle schema/client/seed; SQL migrations in `drizzle/`.
   `getDb()`/`ensureDb()`/`closeDb()` manage a singleton connection.
 - **Desk** (`web/`): React + Vite. `web/src/api.ts` mirrors the server response types by hand.

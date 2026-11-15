@@ -26,12 +26,17 @@ vi.mock("../../web/src/api", () => ({
   loadSession: api.loadSession,
   loadListings: api.loadListings,
   loadAssumptions: api.loadAssumptions,
+  loadAiSettings: vi.fn(() => Promise.resolve(null)),
   loadListing: vi.fn(),
+  loadListingInquiry: vi.fn(),
+  extractListingWithAi: vi.fn(),
   rememberToken: api.rememberToken,
   removeListing: vi.fn(),
+  saveAiSettings: vi.fn(),
   saveAssumptions: vi.fn(),
   saveListing: vi.fn(),
   storedToken: api.storedToken,
+  testAiConnection: vi.fn(),
 }));
 
 import { App } from "../../web/src/App";

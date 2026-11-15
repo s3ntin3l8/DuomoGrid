@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { describeFindings } from "../../src/domain/describe.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  describeFindings,
+  descriptionDigest,
+  extractDescriptionWithLlm,
+  mergeExtractedFacts,
+  sanitizeExtractedFacts,
+} from "../../src/domain/describe.js";
+import type { ListingInput } from "../../src/domain/types.js";
 
 const text = (object: string | null, other: string | null = null) => ({ object, furnishing: null, location: null, other });
 const keys = (object: string | null, other: string | null = null) => describeFindings(text(object, other), 2026).items.map((item) => item.key);
@@ -92,5 +99,160 @@ describe("describeFindings", () => {
     expect(keys("Die Instandhaltungsrücklage beträgt 1,20 € pro m² im Jahr.")).toEqual([]);
     expect(keys("Instandhaltungsrücklage: monatlich 30 € Zuführung.")).toEqual([]);
     expect(keys("Instandhaltungsrücklage 120 € vorhanden.")).toEqual([]);
+  });
+
+  it("extracts structured facts via LLM and merges only missing listing fields without overwriting existing ones", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  items: [
+                    { key: "heat_pump", label: "Heat pump", snippet: "Neue Luft-Wasser-Wärmepumpe eingebaut." },
+                    { key: "maintenance_reserve", label: "Maintenance reserve 62,000 €", snippet: "Rücklage 62.000 €", amountEur: 62000 },
+                  ],
+                  facts: {
+                    yearRefurbished: 2021,
+                    heatingReplacedYear: 2022,
+                    condoFeeEur: 340,
+                    energySource: "Wärmepumpe",
+                    heatingSystem: "Fußbodenheizung",
+                    leasehold: true,
+                    groundRentEur: 180,
+                    monument: false,
+                    tenantOccupied: true,
+                    coldRentEur: 1150,
+                  },
+                }),
+              },
+            },
+          ],
+        }),
+    } as Response);
+
+    const desc = text("Neue Luft-Wasser-Wärmepumpe 2022 eingebaut. Hausgeld 340 EUR, Rücklage 62.000 €, Erbpacht 180 €/Monat, vermietet für 1.150 € kalt.");
+    const extracted = await extractDescriptionWithLlm(
+      {
+        provider: "openai",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        apiKey: "",
+        model: "qwen2.5:14b",
+        autoExtractOnSave: true,
+      },
+      desc,
+      [],
+      JSON.stringify(desc),
+      2026,
+    );
+
+    expect(extracted.descriptionHash).toBe(descriptionDigest(JSON.stringify(desc)));
+    expect(extracted.model).toBe("qwen2.5:14b");
+    expect(extracted.extractedFacts.condoFeeEur).toBe(340);
+    expect(extracted.extractedFacts.leasehold).toBe(true);
+    expect(extracted.extractedFacts.groundRentEur).toBe(180);
+    expect(extracted.extractedFacts.tenantOccupied).toBe(true);
+    expect(extracted.extractedFacts.coldRentEur).toBe(1150);
+
+    const baseListing: ListingInput = {
+      source: "manual",
+      sourceUrl: "",
+      externalId: null,
+      title: "ETW München",
+      offer: "buy",
+      priceEur: 480000,
+      livingAreaM2: 78,
+      plotAreaM2: null,
+      rooms: 3,
+      city: "München",
+      district: null,
+      postalCode: "80331",
+      state: "BY",
+      street: null,
+      latitude: null,
+      longitude: null,
+      locationPrecision: null,
+      propertyType: "apartment",
+      yearBuilt: 1972,
+      yearRefurbished: null,
+      energyClass: null,
+      energyKwh: null,
+      energyCert: null,
+      heating: null,
+      condoFeeEur: null,
+      coldRentEur: null,
+      warmRentEur: null,
+      depositEur: null,
+      rentContract: null,
+      commissionPercent: 3.57,
+      commissionText: null,
+      condition: null,
+      floor: null,
+      features: [],
+      snippet: "",
+      leasehold: false,
+      groundRentEur: null,
+      monument: false,
+      tenantOccupied: false,
+      heatingSystem: null,
+      energySource: "Gas", // already set -> must NOT be overwritten
+      parkingSpaces: null,
+      parkingType: null,
+      parkingPriceEur: null,
+      bathrooms: null,
+      bedrooms: null,
+      availableFrom: null,
+      listedAt: null,
+      portalPreviousPriceEur: null,
+      portalMarketEurPerM2: null,
+      portalMarketLowEurPerM2: null,
+      portalMarketHighEurPerM2: null,
+      description: desc,
+      details: [],
+      images: [],
+    };
+
+    const merged = mergeExtractedFacts(baseListing, extracted);
+    // Stored energySource ("Gas") is preserved, never overwritten by LLM ("Wärmepumpe")
+    expect(merged.analysed.energySource).toBe("Gas");
+    expect(merged.filledFields).not.toContain("energySource");
+    // Missing fields are filled
+    expect(merged.analysed.condoFeeEur).toBe(340);
+    expect(merged.analysed.yearRefurbished).toBe(2021);
+    expect(merged.analysed.heatingSystem).toBe("Fußbodenheizung");
+    expect(merged.analysed.leasehold).toBe(true);
+    expect(merged.analysed.groundRentEur).toBe(180);
+    expect(merged.analysed.tenantOccupied).toBe(true);
+    expect(merged.analysed.coldRentEur).toBe(1150);
+    expect(merged.filledFields).toEqual(
+      expect.arrayContaining([
+        "condoFeeEur",
+        "yearRefurbished",
+        "heatingSystem",
+        "leasehold",
+        "groundRentEur",
+        "tenantOccupied",
+        "coldRentEur",
+      ]),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("sanitizes out-of-range LLM facts safely", () => {
+    const clean = sanitizeExtractedFacts(
+      {
+        yearRefurbished: 2099,
+        heatingReplacedYear: 2019,
+        condoFeeEur: -50,
+        energySource: "Wärmepumpe",
+      },
+      2026,
+    );
+    expect(clean.yearRefurbished).toBeNull();
+    expect(clean.heatingReplacedYear).toBe(2019);
+    expect(clean.condoFeeEur).toBeNull();
+    expect(clean.energySource).toBe("Wärmepumpe");
   });
 });

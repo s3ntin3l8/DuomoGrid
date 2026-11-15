@@ -1,30 +1,78 @@
-import type { ListingDescription } from "./types.js";
+import crypto from "node:crypto";
+import { completeJson, type AiSettings } from "./ai.js";
+import { energySourceOf } from "./ingest.js";
+import type { DetailPair, ListingDescription, ListingInput } from "./types.js";
 
 /** A fact found in the description text. The snippet is the sentence it came from, as published. */
+export type DescriptionFindingKey =
+  | "heat_pump"
+  | "underfloor_heating"
+  | "full_refurbishment"
+  | "kfw_standard"
+  | "renovated"
+  | "heating_replaced"
+  | "special_levy"
+  | "maintenance_reserve"
+  | "leasehold"
+  | "rented"
+  | "monument";
+
 export type DescriptionFinding = {
-  key:
-    | "heat_pump"
-    | "underfloor_heating"
-    | "full_refurbishment"
-    | "kfw_standard"
-    | "renovated"
-    | "heating_replaced"
-    | "special_levy"
-    | "maintenance_reserve"
-    | "leasehold"
-    | "rented"
-    | "monument";
+  key: DescriptionFindingKey;
   label: string;
   snippet: string;
   year?: number;
   amountEur?: number;
 };
 
+export type ExtractedFacts = {
+  energySource?: string | null;
+  heatingSystem?: string | null;
+  yearRefurbished?: number | null;
+  heatingReplacedYear?: number | null;
+  leasehold?: boolean | null;
+  groundRentEur?: number | null;
+  monument?: boolean | null;
+  tenantOccupied?: boolean | null;
+  condoFeeEur?: number | null;
+  coldRentEur?: number | null;
+  parkingSpaces?: number | null;
+  parkingPriceEur?: number | null;
+};
+
 export type DescriptionFindings = {
   items: DescriptionFinding[];
   renovatedYear: number | null;
   heatingReplacedYear: number | null;
+  extractedFacts?: ExtractedFacts;
+  filledFields?: string[];
+  source?: "regex" | "llm";
+  model?: string | null;
 };
+
+export type StoredLlmExtraction = {
+  descriptionHash: string;
+  model: string;
+  extractedAt: string;
+  items: DescriptionFinding[];
+  renovatedYear: number | null;
+  heatingReplacedYear: number | null;
+  extractedFacts: ExtractedFacts;
+};
+
+const ALLOWED_FINDING_KEYS = new Set<DescriptionFindingKey>([
+  "heat_pump",
+  "underfloor_heating",
+  "full_refurbishment",
+  "kfw_standard",
+  "renovated",
+  "heating_replaced",
+  "special_levy",
+  "maintenance_reserve",
+  "leasehold",
+  "rented",
+  "monument",
+]);
 
 /** "kein", "nicht", "ohne": a sentence that says no never produces a finding. */
 const NEGATION = /\b(kein|keine|keinen|keiner|keinem|nicht|ohne|frei von|entf(ä|ae)llt)\b/i;
@@ -139,4 +187,249 @@ export function describeFindings(description: ListingDescription | null, now = n
     renovatedYear: (renovated as { year: number } | null)?.year ?? null,
     heatingReplacedYear: (heating as { year: number } | null)?.year ?? null,
   };
+}
+
+export function descriptionDigest(descriptionJson: string | null): string | null {
+  if (!descriptionJson) return null;
+  return crypto.createHash("sha256").update(descriptionJson).digest("hex");
+}
+
+function validYear(value: unknown, now: number): number | null {
+  const num = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(num) && num >= 1600 && num <= now ? num : null;
+}
+
+function validPositive(value: unknown): number | null {
+  const num = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(num) && num > 0 ? num : null;
+}
+
+function validCount(value: unknown, max: number): number | null {
+  const num = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(num) && num > 0 && num <= max ? num : null;
+}
+
+function validBoolOrNull(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  return null;
+}
+
+export function sanitizeExtractedFacts(raw: unknown, now = new Date().getUTCFullYear()): ExtractedFacts {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const obj = raw as Record<string, unknown>;
+  const energySource = obj.energySource != null ? energySourceOf(obj.energySource) : null;
+  const heatingSystem =
+    typeof obj.heatingSystem === "string" && obj.heatingSystem.trim()
+      ? obj.heatingSystem.trim().slice(0, 80)
+      : null;
+  return {
+    energySource,
+    heatingSystem,
+    yearRefurbished: validYear(obj.yearRefurbished, now),
+    heatingReplacedYear: validYear(obj.heatingReplacedYear, now),
+    leasehold: validBoolOrNull(obj.leasehold),
+    groundRentEur: validPositive(obj.groundRentEur),
+    monument: validBoolOrNull(obj.monument),
+    tenantOccupied: validBoolOrNull(obj.tenantOccupied),
+    condoFeeEur: validPositive(obj.condoFeeEur),
+    coldRentEur: validPositive(obj.coldRentEur),
+    parkingSpaces: validCount(obj.parkingSpaces, 99),
+    parkingPriceEur: validPositive(obj.parkingPriceEur),
+  };
+}
+
+export async function extractDescriptionWithLlm(
+  settings: AiSettings,
+  description: ListingDescription | null,
+  details: DetailPair[] = [],
+  descriptionJson: string | null = null,
+  now = new Date().getUTCFullYear(),
+): Promise<StoredLlmExtraction> {
+  const hash =
+    descriptionDigest(descriptionJson ?? (description ? JSON.stringify(description) : null)) ?? "empty";
+  const regexResult = describeFindings(description, now);
+  if (!description) {
+    return {
+      descriptionHash: hash,
+      model: settings.model,
+      extractedAt: new Date().toISOString(),
+      items: [],
+      renovatedYear: null,
+      heatingReplacedYear: null,
+      extractedFacts: {},
+    };
+  }
+
+  const sections = [
+    description.object ? `[Objektbeschreibung]\n${description.object}` : null,
+    description.furnishing ? `[Ausstattung]\n${description.furnishing}` : null,
+    description.location ? `[Lage]\n${description.location}` : null,
+    description.other ? `[Sonstiges]\n${description.other}` : null,
+    details.length
+      ? `[Eckdaten]\n${details.map((pair) => `${pair.label}: ${pair.value}`).join("\n")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const systemPrompt = `You extract structured real-estate facts from German property listing descriptions for DuomoGrid.
+Rules:
+1. Ignore negated statements (e.g., "kein Erbbaurecht", "nicht vermietet", "ohne Denkmalschutz", "keine Sonderumlage") and hypothetical/future plans (e.g., "Wärmepumpe möglich", "Ausbau denkbar", "Sanierung geplant").
+2. Never guess or invent numbers. Use null for any field not explicitly stated as an actual fact.
+3. Return ONLY a JSON object with this exact shape:
+{
+  "items": [
+    {
+      "key": "heat_pump" | "underfloor_heating" | "full_refurbishment" | "kfw_standard" | "renovated" | "heating_replaced" | "special_levy" | "maintenance_reserve" | "leasehold" | "rented" | "monument",
+      "label": "Short English label (e.g., 'Heat pump', 'Heating renewed 2019', 'Renovated 2016', 'Maintenance reserve about 45.000 EUR', 'Special levy mentioned')",
+      "snippet": "Verbatim German sentence from the text proving this finding (max 220 chars)",
+      "year": 2019,
+      "amountEur": 45000
+    }
+  ],
+  "facts": {
+    "energySource": "Wärmepumpe" | "Erdwärme" | "Fernwärme" | "Pellets" | "Holz" | "Gas" | "Öl" | "Strom" | "Solar" | null,
+    "heatingSystem": "Zentralheizung" | "Fußbodenheizung" | "Etagenheizung" | "Fernwärme" | "Ofenheizung" | null,
+    "yearRefurbished": number | null,
+    "heatingReplacedYear": number | null,
+    "leasehold": boolean | null,
+    "groundRentEur": number | null,
+    "monument": boolean | null,
+    "tenantOccupied": boolean | null,
+    "condoFeeEur": number | null,
+    "coldRentEur": number | null,
+    "parkingSpaces": number | null,
+    "parkingPriceEur": number | null
+  }
+}`;
+
+  const raw = await completeJson<{
+    items?: unknown[];
+    facts?: unknown;
+  }>(settings, systemPrompt, sections);
+
+  const facts = sanitizeExtractedFacts(raw?.facts, now);
+  const itemsByKey = new Map<DescriptionFindingKey, DescriptionFinding>();
+
+  if (Array.isArray(raw?.items)) {
+    for (const entry of raw.items) {
+      if (!entry || typeof entry !== "object") continue;
+      const item = entry as Record<string, unknown>;
+      const key = item.key as DescriptionFindingKey;
+      if (!ALLOWED_FINDING_KEYS.has(key) || itemsByKey.has(key)) continue;
+      const label = typeof item.label === "string" ? item.label.trim().slice(0, 120) : "";
+      const snippet = typeof item.snippet === "string" ? snippetOf(item.snippet.trim()) : "";
+      if (!label || !snippet) continue;
+      const year = validYear(item.year, now) ?? undefined;
+      const amountEur = validPositive(item.amountEur) ?? undefined;
+      itemsByKey.set(key, {
+        key,
+        label,
+        snippet,
+        ...(year != null ? { year } : {}),
+        ...(amountEur != null ? { amountEur } : {}),
+      });
+    }
+  }
+
+  // Keep deterministic findings that the LLM did not emit, unless the LLM explicitly marked a boolean false.
+  for (const fallbackItem of regexResult.items) {
+    if (itemsByKey.has(fallbackItem.key)) continue;
+    if (fallbackItem.key === "leasehold" && facts.leasehold === false) continue;
+    if (fallbackItem.key === "monument" && facts.monument === false) continue;
+    if (fallbackItem.key === "rented" && facts.tenantOccupied === false) continue;
+    itemsByKey.set(fallbackItem.key, fallbackItem);
+  }
+
+  const renovatedYear =
+    facts.yearRefurbished ??
+    itemsByKey.get("renovated")?.year ??
+    regexResult.renovatedYear ??
+    null;
+  const heatingReplacedYear =
+    facts.heatingReplacedYear ??
+    itemsByKey.get("heating_replaced")?.year ??
+    regexResult.heatingReplacedYear ??
+    null;
+
+  return {
+    descriptionHash: hash,
+    model: settings.model,
+    extractedAt: new Date().toISOString(),
+    items: [...itemsByKey.values()],
+    renovatedYear,
+    heatingReplacedYear,
+    extractedFacts: {
+      ...facts,
+      yearRefurbished: renovatedYear,
+      heatingReplacedYear,
+    },
+  };
+}
+
+/**
+ * Fills missing fields on `input` from description findings without ever overwriting a stored value
+ * from the portal or a user PATCH correction.
+ */
+export function mergeExtractedFacts(
+  input: ListingInput,
+  findings: DescriptionFindings,
+): { analysed: ListingInput; filledFields: string[] } {
+  const analysed: ListingInput = { ...input };
+  const filledFields: string[] = [];
+
+  const targetRefurbished =
+    findings.renovatedYear ?? findings.extractedFacts?.yearRefurbished ?? null;
+  if (analysed.yearRefurbished == null && targetRefurbished != null) {
+    analysed.yearRefurbished = targetRefurbished;
+    filledFields.push("yearRefurbished");
+  }
+
+  const facts = findings.extractedFacts;
+  if (!facts) {
+    return { analysed, filledFields };
+  }
+
+  if (analysed.energySource == null && facts.energySource != null) {
+    analysed.energySource = facts.energySource;
+    filledFields.push("energySource");
+  }
+  if (analysed.heatingSystem == null && facts.heatingSystem != null) {
+    analysed.heatingSystem = facts.heatingSystem;
+    filledFields.push("heatingSystem");
+  }
+  if (analysed.condoFeeEur == null && facts.condoFeeEur != null && facts.condoFeeEur > 0) {
+    analysed.condoFeeEur = facts.condoFeeEur;
+    filledFields.push("condoFeeEur");
+  }
+  if (analysed.coldRentEur == null && facts.coldRentEur != null && facts.coldRentEur > 0) {
+    analysed.coldRentEur = facts.coldRentEur;
+    filledFields.push("coldRentEur");
+  }
+  if (analysed.groundRentEur == null && facts.groundRentEur != null && facts.groundRentEur > 0) {
+    analysed.groundRentEur = facts.groundRentEur;
+    filledFields.push("groundRentEur");
+  }
+  if (analysed.parkingSpaces == null && facts.parkingSpaces != null && facts.parkingSpaces > 0) {
+    analysed.parkingSpaces = facts.parkingSpaces;
+    filledFields.push("parkingSpaces");
+  }
+  if (analysed.parkingPriceEur == null && facts.parkingPriceEur != null && facts.parkingPriceEur > 0) {
+    analysed.parkingPriceEur = facts.parkingPriceEur;
+    filledFields.push("parkingPriceEur");
+  }
+  if (!analysed.leasehold && facts.leasehold === true) {
+    analysed.leasehold = true;
+    filledFields.push("leasehold");
+  }
+  if (!analysed.monument && facts.monument === true) {
+    analysed.monument = true;
+    filledFields.push("monument");
+  }
+  if (!analysed.tenantOccupied && facts.tenantOccupied === true) {
+    analysed.tenantOccupied = true;
+    filledFields.push("tenantOccupied");
+  }
+
+  return { analysed, filledFields };
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { DeskListing, ListingPatch, StateOption } from "./api";
+import type { DeskListing, DueDiligenceInquiry, ListingPatch, StateOption } from "./api";
 import { Gallery } from "./Gallery";
 import { PriceHistoryBlock } from "./PriceHistory";
 import { area, eur, num, perM2Text, propertyLabel, statusLabel, STATUSES, when } from "./format";
@@ -15,6 +15,9 @@ export function Detail({
   onClearPoint,
   landPending,
   landMiss,
+  aiConfigured = false,
+  onExtractAi,
+  onLoadInquiry,
 }: {
   row: DeskListing;
   states: StateOption[];
@@ -26,6 +29,9 @@ export function Detail({
   onClearPoint: () => void;
   landPending: boolean;
   landMiss: boolean;
+  aiConfigured?: boolean;
+  onExtractAi?: () => Promise<void>;
+  onLoadInquiry?: (useLlm?: boolean) => Promise<DueDiligenceInquiry>;
 }) {
   const { listing, analysis } = row;
   const buy = listing.offer === "buy";
@@ -189,8 +195,9 @@ export function Detail({
       </section>
       <Facts row={row} />
       <Gallery row={row} part="floorplans" />
-      <Findings row={row} />
+      <Findings row={row} aiConfigured={aiConfigured} onExtractAi={onExtractAi} />
       <DescriptionText row={row} />
+      <MaklerInquiry row={row} aiConfigured={aiConfigured} onLoadInquiry={onLoadInquiry} />
       <PriceHistoryBlock row={row} />
       <section className="block">
         <h3>Notes</h3>
@@ -283,21 +290,168 @@ function Facts({ row }: { row: DeskListing }) {
   );
 }
 
-function Findings({ row }: { row: DeskListing }) {
-  const items = row.descriptionFindings?.items ?? [];
-  if (items.length === 0) return null;
+function Findings({
+  row,
+  aiConfigured,
+  onExtractAi,
+}: {
+  row: DeskListing;
+  aiConfigured: boolean;
+  onExtractAi?: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const findings = row.descriptionFindings;
+  const items = findings?.items ?? [];
+  const filled = findings?.filledFields ?? [];
+  const description = row.listing.description;
+  const hasDescription = Boolean(
+    description && (description.object || description.furnishing || description.location || description.other),
+  );
+  if (items.length === 0 && !(aiConfigured && hasDescription && onExtractAi)) return null;
   return (
     <section className="block">
-      <h3>Read from the description</h3>
-      <ul className="findings">
-        {items.map((item) => (
-          <li key={item.key}>
-            <strong>{item.label}</strong>
-            <span className="meta">{item.snippet}</span>
-          </li>
-        ))}
-      </ul>
-      <p className="meta">Picked out of the seller's text. Sentences that say "no" or "not" are skipped. Check the exposé before relying on any of it.</p>
+      <div className="toolbar" style={{ marginBottom: 6 }}>
+        <h3 style={{ margin: 0 }}>
+          Read from the description
+          {findings?.source === "llm" ? ` · AI${findings.model ? ` (${findings.model})` : ""}` : ""}
+        </h3>
+        {aiConfigured && hasDescription && onExtractAi ? (
+          <button
+            className="chip"
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setError("");
+              void onExtractAi()
+                .catch((reason: unknown) => {
+                  setError(reason instanceof Error ? reason.message : "AI extraction failed.");
+                })
+                .finally(() => setBusy(false));
+            }}
+          >
+            {busy ? "Extracting…" : findings?.source === "llm" ? "Re-extract with AI" : "Extract with AI"}
+          </button>
+        ) : null}
+      </div>
+      {items.length > 0 ? (
+        <ul className="findings">
+          {items.map((item) => (
+            <li key={item.key}>
+              <strong>{item.label}</strong>
+              <span className="meta">{item.snippet}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="meta">No findings matched the rules yet. Use Extract with AI to read the seller&apos;s text with your configured model.</p>
+      )}
+      {filled.length > 0 ? (
+        <p className="note">Filled missing fields from the description: {filled.join(", ")}. Stored portal or corrected values always take precedence.</p>
+      ) : null}
+      {error ? <p className="error">{error}</p> : null}
+      <p className="meta">Picked out of the seller&apos;s text. Sentences that say &quot;no&quot; or &quot;not&quot; are skipped. Check the exposé before relying on any of it.</p>
+    </section>
+  );
+}
+
+function MaklerInquiry({
+  row,
+  aiConfigured,
+  onLoadInquiry,
+}: {
+  row: DeskListing;
+  aiConfigured: boolean;
+  onLoadInquiry?: (useLlm?: boolean) => Promise<DueDiligenceInquiry>;
+}) {
+  const [inquiry, setInquiry] = useState<DueDiligenceInquiry | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+  if (!onLoadInquiry) return null;
+
+  function fetchInquiry(useLlm: boolean) {
+    if (!onLoadInquiry) return;
+    setBusy(true);
+    setError("");
+    setCopied(false);
+    void onLoadInquiry(useLlm)
+      .then((res) => setInquiry(res))
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : "Could not generate questions.");
+      })
+      .finally(() => setBusy(false));
+  }
+
+  return (
+    <section className="block">
+      <div className="toolbar" style={{ marginBottom: 6 }}>
+        <h3 style={{ margin: 0 }}>
+          Questions for the agent
+          {inquiry?.source === "llm" ? ` · AI${inquiry.model ? ` (${inquiry.model})` : ""}` : ""}
+        </h3>
+        <div className="row-actions">
+          <button
+            className="chip"
+            type="button"
+            disabled={busy}
+            onClick={() => fetchInquiry(false)}
+          >
+            {busy && !inquiry ? "Building…" : inquiry ? "Refresh checklist" : "Draft questions"}
+          </button>
+          {aiConfigured ? (
+            <button
+              className="chip"
+              type="button"
+              disabled={busy}
+              onClick={() => fetchInquiry(true)}
+            >
+              {busy ? "Tailoring…" : "Tailor with AI"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      {!inquiry ? (
+        <p className="meta">
+          Build an English due-diligence checklist and a ready-to-send German inquiry message based on missing fields and warning flags on {row.listing.title}.
+        </p>
+      ) : (
+        <>
+          <ul className="findings">
+            {inquiry.checklist.map((item) => (
+              <li key={item.key}>
+                <strong>{item.title}</strong>
+                <span className="meta">{item.whyEnglish}</span>
+                <span>{item.questionGerman}</span>
+              </li>
+            ))}
+          </ul>
+          <details className="fold" open>
+            <summary>German message to the Makler</summary>
+            <textarea
+              readOnly
+              aria-label="German inquiry message"
+              value={inquiry.messageGerman}
+              style={{ marginTop: 8, minHeight: 150 }}
+            />
+            <div className="row-actions" style={{ marginTop: 8 }}>
+              <button
+                className="quiet"
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(inquiry.messageGerman).then(() => {
+                    setCopied(true);
+                  });
+                }}
+              >
+                {copied ? "Copied" : "Copy German text"}
+              </button>
+            </div>
+          </details>
+        </>
+      )}
     </section>
   );
 }

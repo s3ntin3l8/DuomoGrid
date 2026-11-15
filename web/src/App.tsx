@@ -1,21 +1,29 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
+  extractListingWithAi,
+  loadAiSettings,
   loadAssumptions,
   loadListing,
+  loadListingInquiry,
   loadListings,
   loadSession,
   rememberToken,
   removeListing,
+  saveAiSettings,
   saveAssumptions,
   saveListing,
   storedToken,
+  testAiConnection,
+  type AiSettingsPublic,
   type Assumptions,
   type DeskListing,
   type ListingPatch,
   type StateOption,
 } from "./api";
+import { AiSettingsForm } from "./AiSettings";
 import { AssumptionsForm } from "./Assumptions";
+import { ChatPanel } from "./Chat";
 import { Compare } from "./Compare";
 import { Detail } from "./Detail";
 import { eur, historyText, historyTone, perM2Text, statusLabel } from "./format";
@@ -32,7 +40,7 @@ function PriceMove({ row }: { row: DeskListing }) {
 }
 
 type OfferFilter = "all" | "buy" | "rent";
-type Mode = "detail" | "compare" | "assumptions" | "map";
+type Mode = "detail" | "compare" | "assumptions" | "map" | "ai" | "chat";
 
 type Session = "checking" | "token" | "proxy";
 
@@ -42,6 +50,7 @@ export function App() {
   const [session, setSession] = useState<Session>("checking");
   const [rows, setRows] = useState<DeskListing[]>([]);
   const [assumptions, setAssumptions] = useState<Assumptions | null>(null);
+  const [aiSettings, setAiSettings] = useState<AiSettingsPublic | null>(null);
   const [states, setStates] = useState<StateOption[]>([]);
   const [error, setError] = useState("");
   const [offer, setOffer] = useState<OfferFilter>("all");
@@ -54,12 +63,17 @@ export function App() {
   const [landMissId, setLandMissId] = useState<string | null>(null);
 
   async function refresh(nextToken: string) {
-    const [list, model] = await Promise.all([loadListings(nextToken), loadAssumptions(nextToken)]);
+    const [list, model, aiModel] = await Promise.all([
+      loadListings(nextToken),
+      loadAssumptions(nextToken),
+      Promise.resolve(loadAiSettings?.(nextToken)).catch(() => null),
+    ]);
     // The list is light again, so rows must ask for their detail again.
     asked.current.clear();
     setRows(list);
     setAssumptions(model.assumptions);
     setStates(model.states);
+    if (aiModel) setAiSettings(aiModel);
     setActiveId((current) => current ?? list[0]?.id ?? null);
   }
 
@@ -280,8 +294,14 @@ export function App() {
             <button className="quiet" type="button" aria-pressed={mode === "map"} onClick={() => { setMode("map"); setReading(true); }}>
               Map
             </button>
-            <button className="quiet" type="button" onClick={() => { setMode("assumptions"); setReading(true); }}>
+            <button className="quiet" type="button" aria-pressed={mode === "assumptions"} onClick={() => { setMode("assumptions"); setReading(true); }}>
               Assumptions
+            </button>
+            <button className="quiet" type="button" aria-pressed={mode === "chat"} onClick={() => { setMode("chat"); setReading(true); }}>
+              Ask AI
+            </button>
+            <button className="quiet" type="button" aria-pressed={mode === "ai"} onClick={() => { setMode("ai"); setReading(true); }}>
+              AI
             </button>
             <button
               className="primary"
@@ -305,6 +325,27 @@ export function App() {
               await refresh(token);
               setMode("detail");
             }}
+          />
+        ) : null}
+        {mode === "ai" && aiSettings ? (
+          <AiSettingsForm
+            key={JSON.stringify(aiSettings)}
+            initial={aiSettings}
+            onSave={async (next) => {
+              const saved = await saveAiSettings(token, next);
+              setAiSettings(saved);
+              await refresh(token);
+              return saved;
+            }}
+            onTest={(override) => testAiConnection(token, override)}
+          />
+        ) : null}
+        {mode === "chat" ? (
+          <ChatPanel
+            token={token}
+            active={active}
+            aiConfigured={Boolean(aiSettings?.configured)}
+            onOpenAiSettings={() => { setMode("ai"); setReading(true); }}
           />
         ) : null}
         {mode === "compare" && compared.length >= 2 ? <Compare rows={compared} /> : null}
@@ -358,6 +399,12 @@ export function App() {
             onClearPoint={() => void mutate(active.id, { clearPoint: true })}
             landPending={landPendingId === active.id && active.bodenrichtwert?.status === "unknown"}
             landMiss={landMissId === active.id && active.bodenrichtwert?.status === "unknown"}
+            aiConfigured={Boolean(aiSettings?.configured)}
+            onExtractAi={async () => {
+              const updated = await extractListingWithAi(token, active.id);
+              setRows((current) => current.map((row) => (row.id === active.id ? updated : row)));
+            }}
+            onLoadInquiry={(useLlm) => loadListingInquiry(token, active.id, useLlm)}
           />
         ) : null}
         {mode === "detail" && !active ? (
