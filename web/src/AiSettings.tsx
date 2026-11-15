@@ -144,6 +144,9 @@ export function AiSettingsForm({
                     onChange={(event) => setBaseUrl(event.target.value)}
                     placeholder={provider === "anthropic" ? "https://api.anthropic.com" : "http://127.0.0.1:11434/v1"}
                   />
+                  <small className="meta">
+                    Allowed hosts: <code>127.0.0.1</code>, <code>localhost</code> (use for IPv6 loopback), <code>host.docker.internal</code>, <code>api.openai.com</code>, <code>api.anthropic.com</code>.
+                  </small>
                 </label>
                 <label>
                   Model name

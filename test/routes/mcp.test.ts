@@ -226,6 +226,195 @@ describe("routes/mcp", () => {
     expect(promptGet.statusCode).toBe(200);
     expect(promptGet.json().result.messages[0].content.text).toContain(id1);
 
+    // 9. Cover list_listings, get_listing, generate_makler_inquiry, get_assumptions, update_assumptions, hypothetical simulate_analysis
+    const listCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 10,
+        method: "tools/call",
+        params: {
+          name: "list_listings",
+          arguments: { offer: "buy", status: "visit", city: "Darmstadt", minScore: 10, maxPriceEur: 500000 },
+        },
+      },
+    });
+    expect(listCall.statusCode).toBe(200);
+    expect(JSON.parse(listCall.json().result.content[0].text as string).count).toBe(1);
+
+    const getCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 11,
+        method: "tools/call",
+        params: { name: "get_listing", arguments: { id: id1 } },
+      },
+    });
+    expect(getCall.statusCode).toBe(200);
+    expect(JSON.parse(getCall.json().result.content[0].text as string).id).toBe(id1);
+
+    const getAssumptionsCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 12,
+        method: "tools/call",
+        params: { name: "get_assumptions", arguments: {} },
+      },
+    });
+    expect(getAssumptionsCall.statusCode).toBe(200);
+
+    const updateAssumptionsCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 13,
+        method: "tools/call",
+        params: { name: "update_assumptions", arguments: { interestPercent: 3.4, horizonYears: 15 } },
+      },
+    });
+    expect(updateAssumptionsCall.statusCode).toBe(200);
+    expect(JSON.parse(updateAssumptionsCall.json().result.content[0].text as string).assumptions.interestPercent).toBe(3.4);
+
+    const inquiryCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 14,
+        method: "tools/call",
+        params: { name: "generate_makler_inquiry", arguments: { id: id1, useLlm: false } },
+      },
+    });
+    expect(inquiryCall.statusCode).toBe(200);
+    expect(JSON.parse(inquiryCall.json().result.content[0].text as string).source).toBe("deterministic");
+
+    const simHypoCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 15,
+        method: "tools/call",
+        params: {
+          name: "simulate_analysis",
+          arguments: { priceEur: 380000, livingAreaM2: 85, city: "Darmstadt", discountPercent: 5 },
+        },
+      },
+    });
+    expect(simHypoCall.statusCode).toBe(200);
+    expect(JSON.parse(simHypoCall.json().result.content[0].text as string).listingTitle).toBe("Hypothetical listing");
+
+    const simDiscountCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 16,
+        method: "tools/call",
+        params: {
+          name: "simulate_analysis",
+          arguments: { id: id1, discountPercent: 10, condoFeeEur: 250, energyClass: "B", yearRefurbished: 2022 },
+        },
+      },
+    });
+    expect(simDiscountCall.statusCode).toBe(200);
+    expect(JSON.parse(simDiscountCall.json().result.content[0].text as string).simulated.priceEur).toBe(405000);
+
+    const patchPriceCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 17,
+        method: "tools/call",
+        params: {
+          name: "update_listing",
+          arguments: { id: id1, priceEur: 440000, livingAreaM2: 92, yearBuilt: 1998, energyClass: "C" },
+        },
+      },
+    });
+    expect(patchPriceCall.statusCode).toBe(200);
+    expect(JSON.parse(patchPriceCall.json().result.content[0].text as string).listing.priceEur).toBe(440000);
+
+    const compareAutoCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 18,
+        method: "tools/call",
+        params: { name: "compare_listings", arguments: {} },
+      },
+    });
+    expect(compareAutoCall.statusCode).toBe(200);
+    expect(JSON.parse(compareAutoCall.json().result.content[0].text as string).count).toBe(2);
+
+    const promptCompare = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 19,
+        method: "prompts/get",
+        params: { name: "portfolio-comparison", arguments: {} },
+      },
+    });
+    expect(promptCompare.statusCode).toBe(200);
+
+    const readPortfolio = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 20,
+        method: "resources/read",
+        params: { uri: "duomogrid://listings" },
+      },
+    });
+    expect(readPortfolio.statusCode).toBe(200);
+
+    const readAssumptions = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 21,
+        method: "resources/read",
+        params: { uri: "duomogrid://assumptions" },
+      },
+    });
+    expect(readAssumptions.statusCode).toBe(200);
+
+    const batchMcp = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: [
+        { jsonrpc: "2.0", id: 22, method: "ping" },
+        { jsonrpc: "2.0", method: "notifications/initialized" },
+      ],
+    });
+    expect(batchMcp.statusCode).toBe(200);
+    expect(batchMcp.json()).toHaveLength(1);
+
     await app.close();
   });
 });

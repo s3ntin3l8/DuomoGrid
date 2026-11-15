@@ -8,6 +8,9 @@ describe("routes/ai", () => {
   afterEach(() => {
     delete process.env.INGEST_TOKEN;
     delete process.env.DB_ENCRYPTION_KEY;
+    delete process.env.AI_PROVIDER;
+    delete process.env.AI_API_KEY;
+    delete process.env.AI_MODEL;
     vi.restoreAllMocks();
   });
 
@@ -86,6 +89,71 @@ describe("routes/ai", () => {
     expect(row?.value).toContain("enc:");
 
     await app.close();
+  });
+
+  it("allows PUT /ai/settings on an .env-configured deployment without DB_ENCRYPTION_KEY and keeps env keys out of the DB", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    process.env.AI_PROVIDER = "anthropic";
+    process.env.AI_API_KEY = ["env", "token", "7788"].join("-"); // pragma: allowlist secret
+    process.env.AI_MODEL = "claude-sonnet-4-20250514";
+    const headers = { authorization: "Bearer test-token" };
+
+    // 1. Without DB_ENCRYPTION_KEY, changing model/autoExtractOnSave succeeds without 400
+    const appNoEnc = await buildApp();
+    const getBefore = await appNoEnc.inject({ method: "GET", url: "/ai/settings", headers });
+    expect(getBefore.statusCode).toBe(200);
+    expect(getBefore.json()).toMatchObject({
+      provider: "anthropic",
+      hasApiKey: true,
+      apiKeyPreview: "***...7788",
+      configured: true,
+      encryptionEnabled: false,
+    });
+
+    const putRes = await appNoEnc.inject({
+      method: "PUT",
+      url: "/ai/settings",
+      headers,
+      payload: {
+        provider: "anthropic",
+        baseUrl: "https://api.anthropic.com",
+        model: "claude-3-5-haiku-latest",
+        autoExtractOnSave: true,
+      },
+    });
+    expect(putRes.statusCode).toBe(200);
+    expect(putRes.json()).toMatchObject({
+      provider: "anthropic",
+      model: "claude-3-5-haiku-latest",
+      autoExtractOnSave: true,
+      hasApiKey: true,
+      apiKeyPreview: "***...7788",
+      configured: true,
+      encryptionEnabled: false,
+    });
+
+    const rowNoEnc = appNoEnc.db.select().from(settings).where(eq(settings.key, "ai")).get();
+    expect(JSON.parse(rowNoEnc?.value ?? "{}").apiKey).toBe("");
+    await appNoEnc.close();
+
+    // 2. Even with DB_ENCRYPTION_KEY enabled, an env-sourced key is not copied into the settings row
+    process.env.DB_ENCRYPTION_KEY = crypto.randomBytes(32).toString("base64url");
+    const appWithEnc = await buildApp();
+    const putEncRes = await appWithEnc.inject({
+      method: "PUT",
+      url: "/ai/settings",
+      headers,
+      payload: {
+        provider: "anthropic",
+        baseUrl: "https://api.anthropic.com",
+        model: "claude-sonnet-4-20250514",
+        autoExtractOnSave: true,
+      },
+    });
+    expect(putEncRes.statusCode).toBe(200);
+    const rowWithEnc = appWithEnc.db.select().from(settings).where(eq(settings.key, "ai")).get();
+    expect(JSON.parse(rowWithEnc?.value ?? "{}").apiKey).toBe("");
+    await appWithEnc.close();
   });
 
   it("runs LLM extraction, caches it on the listing, and fills missing analysis fields without overwriting portal fields", async () => {

@@ -6,6 +6,8 @@ export type AiSettings = {
   provider: AiProvider;
   baseUrl: string;
   apiKey: string;
+  apiKeySource?: "db" | "env" | "none";
+  apiKeyCleared?: boolean;
   model: string;
   autoExtractOnSave: boolean;
 };
@@ -173,11 +175,13 @@ export function normalizeAiSettings(
 ): AiSettings {
   const envProvider = providerOf(envDefaults.AI_PROVIDER, "none");
   const envUrlRes = validateAiBaseUrl(envDefaults.AI_BASE_URL, envProvider);
-  const envKey = envDefaults["AI_API_KEY"]; // pragma: allowlist secret
+  const envKeyRaw = envDefaults["AI_API_KEY"]; // pragma: allowlist secret
+  const envKey = typeof envKeyRaw === "string" ? envKeyRaw.trim() : "";
   const baseDefaults: AiSettings = {
     provider: envProvider,
     baseUrl: envUrlRes.ok ? envUrlRes.url : DEFAULT_AI_SETTINGS.baseUrl,
-    apiKey: typeof envKey === "string" ? envKey.trim() : "",
+    apiKey: envKey,
+    apiKeySource: envKey ? "env" : "none",
     model: typeof envDefaults.AI_MODEL === "string" ? envDefaults.AI_MODEL.trim().slice(0, 120) : "",
     autoExtractOnSave: false,
   };
@@ -188,16 +192,26 @@ export function normalizeAiSettings(
   const record = stored as Record<string, unknown>;
   const provider = providerOf(record.provider, baseDefaults.provider);
   const urlRes = validateAiBaseUrl(record.baseUrl ?? baseDefaults.baseUrl, provider);
-  let apiKey = baseDefaults.apiKey;
-  if (typeof record.apiKey === "string") { // pragma: allowlist secret
+  const apiKeyCleared = record.apiKeyCleared === true;
+  let apiKey = apiKeyCleared ? "" : baseDefaults.apiKey;
+  let apiKeySource: "db" | "env" | "none" = apiKeyCleared // pragma: allowlist secret
+    ? "none" // pragma: allowlist secret
+    : (baseDefaults.apiKeySource ?? "none"); // pragma: allowlist secret
+  if (!apiKeyCleared && typeof record.apiKey === "string") { // pragma: allowlist secret
     const rawStoredKey = record.apiKey.trim();
-    if (!rawStoredKey) {
-      apiKey = "";
-    } else if (encryption?.isEnabled && rawStoredKey.startsWith("enc:")) {
-      try {
-        apiKey = encryption.decryptString(rawStoredKey).trim();
-      } catch {
-        apiKey = "";
+    if (rawStoredKey) {
+      if (encryption?.isEnabled && rawStoredKey.startsWith("enc:")) {
+        try {
+          const decrypted = encryption.decryptString(rawStoredKey).trim();
+          apiKey = decrypted;
+          apiKeySource = decrypted ? "db" : "none"; // pragma: allowlist secret
+        } catch {
+          apiKey = baseDefaults.apiKey;
+          apiKeySource = baseDefaults.apiKeySource ?? "none"; // pragma: allowlist secret
+        }
+      } else {
+        apiKey = baseDefaults.apiKey;
+        apiKeySource = baseDefaults.apiKeySource ?? "none"; // pragma: allowlist secret
       }
     }
   }
@@ -214,6 +228,8 @@ export function normalizeAiSettings(
     provider,
     baseUrl: urlRes.ok ? urlRes.url : baseDefaults.baseUrl,
     apiKey,
+    apiKeySource,
+    ...(apiKeyCleared ? { apiKeyCleared: true } : {}),
     model,
     autoExtractOnSave,
   };
@@ -251,12 +267,19 @@ export function applyAiSettingsUpdate(
       : current.model;
 
   let apiKey = current.apiKey;
+  let apiKeySource: "db" | "env" | "none" = // pragma: allowlist secret
+    current.apiKeySource ?? (current.apiKey.trim() ? "db" : "none"); // pragma: allowlist secret
+  let apiKeyCleared = current.apiKeyCleared === true;
   if (body.clearApiKey === true) {
     apiKey = "";
+    apiKeySource = "none"; // pragma: allowlist secret
+    apiKeyCleared = true;
   } else if (typeof body.apiKey === "string") { // pragma: allowlist secret
     const trimmed = body.apiKey.trim();
     if (trimmed && !trimmed.startsWith("***")) {
       apiKey = trimmed.slice(0, 512);
+      apiKeySource = "db"; // pragma: allowlist secret
+      apiKeyCleared = false;
     }
   }
 
@@ -271,6 +294,8 @@ export function applyAiSettingsUpdate(
       provider,
       baseUrl: urlRes.url,
       apiKey,
+      apiKeySource,
+      ...(apiKeyCleared ? { apiKeyCleared: true } : {}),
       model,
       autoExtractOnSave,
     },
@@ -281,18 +306,20 @@ export function serializeAiSettings(
   settings: AiSettings,
   encryption?: EncryptionService,
 ): string {
-  const cleanKey = settings.apiKey.trim();
-  if (cleanKey && !encryption?.isEnabled) {
+  // Never persist an environment-sourced AI_API_KEY into the SQLite settings row.
+  const dbKey = settings.apiKeySource === "env" ? "" : settings.apiKey.trim();
+  if (dbKey && !encryption?.isEnabled) {
     throw new Error(
       "Set DB_ENCRYPTION_KEY on the server before storing an API key in the database, or set AI_API_KEY in .env.",
     );
   }
   const storedKey =
-    cleanKey && encryption?.isEnabled ? encryption.encryptString(cleanKey) : "";
+    dbKey && encryption?.isEnabled ? encryption.encryptString(dbKey) : "";
   return JSON.stringify({
     provider: settings.provider,
     baseUrl: settings.baseUrl,
     apiKey: storedKey,
+    ...(settings.apiKeyCleared ? { apiKeyCleared: true } : {}),
     model: settings.model,
     autoExtractOnSave: settings.autoExtractOnSave,
   });

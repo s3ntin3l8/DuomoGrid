@@ -292,12 +292,12 @@ export function findingsFor(
   llmStoredJson: string | null = null,
 ): DescriptionFindings {
   if (stored && llmStoredJson) {
-    const llmKey = `${stored}\0${llmStoredJson}`;
+    const digest = descriptionDigest(stored);
+    const llmKey = `${digest}:${descriptionDigest(llmStoredJson)}`;
     const cachedLlm = findingsCache.get(llmKey);
     if (cachedLlm) return cachedLlm;
     try {
       const parsed = JSON.parse(llmStoredJson) as StoredLlmExtraction;
-      const digest = descriptionDigest(stored);
       if (parsed && parsed.descriptionHash === digest && Array.isArray(parsed.items)) {
         const llmFound: DescriptionFindings = {
           items: parsed.items,
