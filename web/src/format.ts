@@ -86,3 +86,21 @@ export function propertyLabel(type: string): string {
       return "Other";
   }
 }
+
+/**
+ * The band a score falls into, taken from the server's own verdict so the desk never
+ * re-derives the thresholds. A rental has no score and no verdict band.
+ */
+export type ScoreBand = "workable" | "worth a look" | "mixed" | "careful";
+
+export function scoreBand(verdict: string): ScoreBand | null {
+  switch (verdict) {
+    case "workable":
+    case "worth a look":
+    case "mixed":
+    case "careful":
+      return verdict;
+    default:
+      return null;
+  }
+}
