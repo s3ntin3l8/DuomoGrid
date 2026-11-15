@@ -350,6 +350,11 @@ function MarketFieldRow({
       {suggestion ? (
         <div className="market-field-market">
           <p className="meta">{suggestion.detail}</p>
+          <p className="meta">
+            Source: {suggestion.source}
+            {suggestion.asOf ? `, ${suggestion.asOf}` : ""}
+            {suggestion.preliminary ? " (provisional)" : ""}.
+          </p>
           <div className="row-actions">
             {differs ? (
               <button type="button" className="quiet" onClick={onAccept}>
