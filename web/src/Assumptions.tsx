@@ -149,7 +149,6 @@ export function AssumptionsForm({
         <p className="meta">The fees a purchase brings with it. They follow the law, not the market, so there is nothing to refresh.</p>
         <div className="fields">
           <MarketFieldRow
-            field="notary"
             label={FIELD_LABELS.notary}
             value={draft.notaryPercent}
             provenance={draft.notaryProvenance}
@@ -161,7 +160,6 @@ export function AssumptionsForm({
             pinned={pinned.includes("notary")}
           />
           <MarketFieldRow
-            field="register"
             label={FIELD_LABELS.register}
             value={draft.registerPercent}
             provenance={draft.registerProvenance}
@@ -173,7 +171,6 @@ export function AssumptionsForm({
             pinned={pinned.includes("register")}
           />
           <MarketFieldRow
-            field="commission"
             label={FIELD_LABELS.commission}
             value={draft.fallbackCommissionPercent}
             provenance={draft.commissionProvenance}
@@ -191,7 +188,6 @@ export function AssumptionsForm({
         <h3>Financing</h3>
         <div className="fields">
           <MarketFieldRow
-            field="interest"
             label={FIELD_LABELS.interest}
             value={draft.interestPercent}
             provenance={draft.interestProvenance}
@@ -311,7 +307,6 @@ function Readout({ label, value }: { label: string; value: string }) {
  * A field that can follow the market. The value, where it came from, and the figure on offer.
  */
 function MarketFieldRow({
-  field,
   label,
   value,
   provenance,
@@ -322,7 +317,6 @@ function MarketFieldRow({
   accepted,
   pinned,
 }: {
-  field: MarketField;
   label: string;
   value: number;
   provenance: Assumptions["interestProvenance"];
@@ -373,7 +367,6 @@ function MarketFieldRow({
         </div>
       ) : null}
       {provenance.source === "market" && !differs ? <p className="note">Following the market.</p> : null}
-      {field === "interest" ? null : null}
     </div>
   );
 }
