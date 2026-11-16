@@ -44,10 +44,21 @@ const ListingMap = lazy(() => import("./Map").then((mod) => ({ default: mod.List
  * silently stop remounting the form.
  */
 export function settingsKey(assumptions: Assumptions): string {
+  // The values only, never the provenance. The heating rates carry their own, nested.
   const values = Object.entries(assumptions)
     .filter(([key]) => !key.endsWith("Provenance"))
-    .sort(([left], [right]) => left.localeCompare(right));
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => [key, key === "energyRates" ? valueOnly(value) : value]);
   return JSON.stringify(values);
+}
+
+/** The heating rates without their origins, so a refreshed figure alone does not remount the form. */
+function valueOnly(rates: unknown): unknown {
+  if (!rates || typeof rates !== "object") return rates;
+  const entries = Object.entries(rates as Record<string, unknown>)
+    .filter(([key]) => !key.endsWith("Provenance"))
+    .sort(([left], [right]) => left.localeCompare(right));
+  return Object.fromEntries(entries);
 }
 
 function PriceMove({ row }: { row: DeskListing }) {

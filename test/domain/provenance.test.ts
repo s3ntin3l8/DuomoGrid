@@ -51,6 +51,40 @@ describe("assumption provenance", () => {
   });
 });
 
+describe("normalizeAssumptions energy rates", () => {
+  it("gives an old row the shipped rates", () => {
+    const old = normalizeAssumptions({ interestPercent: 4 });
+    expect(old.energyRates.electric).toBe(DEFAULT_ASSUMPTIONS.energyRates.electric);
+    expect(old.energyRates.electricProvenance.source).toBe("builtin");
+  });
+
+  it("keeps the rates a row was saved with", () => {
+    const next = normalizeAssumptions({
+      energyRates: { electric: 0.4, electricProvenance: { source: "user", asOf: null, note: null } },
+    });
+    expect(next.energyRates.electric).toBe(0.4);
+    expect(next.energyRates.electricProvenance.source).toBe("user");
+    // The fuels the row says nothing about keep the shipped ones.
+    expect(next.energyRates.gas).toBe(DEFAULT_ASSUMPTIONS.energyRates.gas);
+    expect(next.energyRates.gasProvenance.source).toBe("builtin");
+  });
+
+  it("never lets a rate be zero or negative, because heat is not free", () => {
+    const next = normalizeAssumptions({
+      energyRates: { electric: 0, gas: -1, oil: "abc", biomass: null },
+    });
+    expect(next.energyRates.electric).toBe(DEFAULT_ASSUMPTIONS.energyRates.electric);
+    expect(next.energyRates.gas).toBe(DEFAULT_ASSUMPTIONS.energyRates.gas);
+    expect(next.energyRates.oil).toBe(DEFAULT_ASSUMPTIONS.energyRates.oil);
+    expect(next.energyRates.biomass).toBe(DEFAULT_ASSUMPTIONS.energyRates.biomass);
+  });
+
+  it("reads a rate as a number", () => {
+    const next = normalizeAssumptions({ energyRates: { electric: "0.25" } });
+    expect(next.energyRates.electric).toBe(0.25);
+  });
+});
+
 describe("suggestionsFor", () => {
   it("offers the market rate and the fees the law sets", () => {
     const suggestions = suggestionsFor(SNAPSHOT);
@@ -152,6 +186,96 @@ describe("refreshAssumptions", () => {
     const moved = refreshAssumptions(base, suggestions);
     expect(moved.registerPercent).toBe(0.5);
     expect(moved.fallbackCommissionPercent).toBe(3.57);
+  });
+});
+
+describe("energy rates", () => {
+  it("offers the published electricity and gas prices, and nothing for the fuels without one", () => {
+    const suggestions = suggestionsFor({
+      ...SNAPSHOT,
+      energy: {
+        asOf: "2026-H1",
+        electricityEurPerKwh: 0.3618,
+        electricityAsOf: "2026-H1",
+        gasEurPerKwh: 0.1156,
+        gasAsOf: "2026-H1",
+        source: "Statistisches Bundesamt",
+        fetchedAt: "2026-11-15T10:00:00.000Z",
+      },
+    });
+    expect(suggestions.energy.electric?.value).toBe(0.3618);
+    expect(suggestions.energy.electric?.asOf).toBe("2026-H1");
+    expect(suggestions.energy.gas?.value).toBe(0.1156);
+    // District heat, oil and biomass have no published household price.
+    expect(suggestions.energy.district).toBeUndefined();
+    expect(suggestions.energy.oil).toBeUndefined();
+    expect(suggestions.energy.biomass).toBeUndefined();
+  });
+
+  it("offers no heating rate without the energy prices", () => {
+    expect(suggestionsFor(SNAPSHOT).energy).toEqual({});
+  });
+
+  it("accepts a heating rate and marks it as a market value", () => {
+    const suggestions = suggestionsFor({
+      ...SNAPSHOT,
+      energy: {
+        asOf: "2026-H1",
+        electricityEurPerKwh: 0.3618,
+        electricityAsOf: "2026-H1",
+        gasEurPerKwh: 0.1156,
+        gasAsOf: "2026-H1",
+        source: "Statistisches Bundesamt",
+        fetchedAt: "2026-11-15T10:00:00.000Z",
+      },
+    });
+    const next = applySuggestion(DEFAULT_ASSUMPTIONS, "electric", suggestions.energy.electric ?? null);
+    expect(next.energyRates.electric).toBe(0.3618);
+    expect(next.energyRates.electricProvenance.source).toBe("market");
+    expect(next.energyRates.electricProvenance.asOf).toBe("2026-H1");
+  });
+
+  it("moves a heating rate that follows the market, and leaves the others alone", () => {
+    const suggestions = suggestionsFor({
+      ...SNAPSHOT,
+      energy: {
+        asOf: "2026-H1",
+        electricityEurPerKwh: 0.3618,
+        electricityAsOf: "2026-H1",
+        gasEurPerKwh: 0.1156,
+        gasAsOf: "2026-H1",
+        source: "Statistisches Bundesamt",
+        fetchedAt: "2026-11-15T10:00:00.000Z",
+      },
+    });
+    const accepted = applySuggestion(DEFAULT_ASSUMPTIONS, "electric", suggestions.energy.electric ?? null);
+    const moved = refreshAssumptions(accepted, suggestions);
+    expect(moved.energyRates.electric).toBe(0.3618);
+    // The gas rate was never accepted, so it keeps the shipped one.
+    expect(moved.energyRates.gas).toBe(DEFAULT_ASSUMPTIONS.energyRates.gas);
+    expect(moved.energyRates.gasProvenance.source).toBe("builtin");
+  });
+
+  it("never moves a heating rate the owner typed", () => {
+    const suggestions = suggestionsFor({
+      ...SNAPSHOT,
+      energy: {
+        asOf: "2026-H1",
+        electricityEurPerKwh: 0.3618,
+        electricityAsOf: "2026-H1",
+        gasEurPerKwh: 0.1156,
+        gasAsOf: "2026-H1",
+        source: "Statistisches Bundesamt",
+        fetchedAt: "2026-11-15T10:00:00.000Z",
+      },
+    });
+    const mine = pinField(
+      { ...DEFAULT_ASSUMPTIONS, energyRates: { ...DEFAULT_ASSUMPTIONS.energyRates, electric: 0.4 } },
+      "electric",
+    );
+    const moved = refreshAssumptions(mine, suggestions);
+    expect(moved.energyRates.electric).toBe(0.4);
+    expect(moved.energyRates.electricProvenance.source).toBe("user");
   });
 });
 

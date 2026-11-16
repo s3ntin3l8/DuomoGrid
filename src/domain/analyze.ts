@@ -3,7 +3,7 @@ import type { Bodenrichtwert } from "./bodenrichtwert.js";
 import type { DescriptionFinding } from "./describe.js";
 import type { DistrictSaleBand } from "./district-band.js";
 import type { PriceHistory } from "./history.js";
-import type { Assumptions, Flag, ListingInput, Subscore } from "./types.js";
+import type { Assumptions, EnergyRate, Flag, ListingInput, Subscore } from "./types.js";
 
 /** The score from which the verdict reads "worth a look". `maxOffer` solves for the price at this score. */
 export const WORTH_A_LOOK = 65;
@@ -91,15 +91,21 @@ function lerp(ratio: number, points: [number, number][]): number {
 
 type Fuel = "heatpump" | "electric" | "storage" | "district" | "oil" | "biomass" | "biogas" | "gas";
 
-const FUEL_RATE: Record<Fuel, number> = {
-  heatpump: 0.28,
-  electric: 0.32,
-  storage: 0.32,
-  district: 0.16,
-  oil: 0.1,
-  biomass: 0.08,
-  biogas: 0.11,
-  gas: 0.11,
+/**
+ * Which heating rate each fuel uses.
+ *
+ * The eight fuels collapse into five rates, because what matters is what burns: a heat pump, an
+ * electric heater and night storage all burn electricity, and biogas is sold as gas.
+ */
+const FUEL_RATE_KEY: Record<Fuel, EnergyRate> = {
+  heatpump: "electric",
+  electric: "electric",
+  storage: "electric",
+  district: "district",
+  oil: "oil",
+  biomass: "biomass",
+  biogas: "gas",
+  gas: "gas",
 };
 
 /**
@@ -316,7 +322,9 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
 
   const kwh = listing.energyKwh != null && listing.energyKwh > 0 ? listing.energyKwh : listing.energyClass ? (CLASS_KWH[listing.energyClass] ?? null) : null;
   const fuel = fuelOf(listing);
-  const euroKwh = fuel ? FUEL_RATE[fuel] : 0.12;
+  // The heating rate is the owner's, per fuel. A fuel that is not named falls back on the rate for
+  // an unknown fuel, which is the price of heat itself rather than the price of a carrier.
+  const euroKwh = fuel ? assumptions.energyRates[FUEL_RATE_KEY[fuel]] : 0.12;
   const annualHeating = kwh != null && living != null && living > 0 && listing.propertyType !== "land" ? roundEuro(kwh * living * euroKwh) : null;
   const monthlyHeating = annualHeating != null ? roundEuro(annualHeating / 12) : null;
   const monthlyCondoFee = listing.condoFeeEur != null ? roundEuro(listing.condoFeeEur) : listing.propertyType === "house" || listing.propertyType === "multi" ? 0 : null;

@@ -5,6 +5,22 @@ export type Provenance = {
   note: string | null;
 };
 
+export type EnergyRate = "electric" | "gas" | "district" | "oil" | "biomass";
+
+/** The heating rate per fuel, and where each one came from. */
+export type EnergyRateAssumptions = {
+  electric: number;
+  electricProvenance: Provenance;
+  gas: number;
+  gasProvenance: Provenance;
+  district: number;
+  districtProvenance: Provenance;
+  oil: number;
+  oilProvenance: Provenance;
+  biomass: number;
+  biomassProvenance: Provenance;
+};
+
 export type Assumptions = {
   equityMode: "percent" | "eur";
   equityPercent: number;
@@ -19,6 +35,7 @@ export type Assumptions = {
   registerProvenance: Provenance;
   fallbackCommissionPercent: number;
   commissionProvenance: Provenance;
+  energyRates: EnergyRateAssumptions;
   horizonYears: number;
   equityReturnPercent: number;
   appreciationPercent: number;
@@ -47,6 +64,8 @@ export type Suggestions = {
   notary: Suggestion | null;
   register: Suggestion | null;
   commission: Suggestion | null;
+  /** The heating rate on offer per fuel. Only electricity and gas have a published price. */
+  energy: Partial<Record<EnergyRate, Suggestion>>;
 };
 
 export type MarketRateHistoryPoint = { period: string; percent: number };

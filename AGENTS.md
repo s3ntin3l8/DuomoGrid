@@ -111,6 +111,7 @@ The full list, with reasons, is in `.claude/skills/duomogrid/SKILL.md`. Read it 
 - Each route plugin that serves user data calls `installIngestGuard(app, prefix)` itself. The hook is encapsulated, and an empty token means 503.
 - `POST /assumptions/refresh` is covered by the existing `/assumptions` guard: the prefix match is `url.startsWith(prefix)`. It needs no new route plugin and no new vite proxy entry.
 - Each market-ish assumption carries a provenance (`user`, `market`, `builtin`). A refresh moves only a `market` value; a `user` or `builtin` value never moves.
+- The heating rates live in `assumptions.energyRates`, one per fuel with its own provenance: `electric`, `gas`, `district`, `oil`, `biomass`. The eight fuels the analysis knows collapse into these five, because a heat pump, an electric heater and night storage all burn electricity, and biogas is sold as gas. Only electricity and gas have a published price to accept.
 - Rentals are never scored. For `offer: "rent"`, `priceEur` is the cold rent.
 - A listing's price is its newest `observations` row. `listings` has no price column.
 - Unknown amounts stay `null` in analysis. They are never coerced to `0`.

@@ -126,6 +126,54 @@ export type Provenance = {
 
 export const BUILTIN_PROVENANCE: Provenance = { source: "builtin", asOf: null, note: null };
 
+/**
+ * The heating rates the owner can set, one per fuel.
+ *
+ * The eight fuels the analysis knows collapse into five rates, because what matters is what
+ * burns: a heat pump, an electric heater and night storage all burn electricity, and biogas is
+ * sold as gas. District heat, oil and biomass have no national average price, so they get a rate
+ * of their own and no market suggestion.
+ */
+export const ENERGY_RATES = ["electric", "gas", "district", "oil", "biomass"] as const;
+export type EnergyRate = (typeof ENERGY_RATES)[number];
+
+/** The heating rate per fuel, in euro per kWh, with where each one came from. */
+export type EnergyRateAssumptions = {
+  electric: number;
+  electricProvenance: Provenance;
+  gas: number;
+  gasProvenance: Provenance;
+  district: number;
+  districtProvenance: Provenance;
+  oil: number;
+  oilProvenance: Provenance;
+  biomass: number;
+  biomassProvenance: Provenance;
+};
+
+/** The name of the field that holds a fuel's origin. */
+export type EnergyRateProvenanceKey = `${EnergyRate}Provenance`;
+
+/**
+ * The rates the product ships with.
+ *
+ * These are rough figures, not prices. The household electricity and gas rates are what a home
+ * heated that way used to cost before the published prices were read; the district heat, oil and
+ * biomass rates have no national average behind them at all.
+ */
+export const DEFAULT_ENERGY_RATES: EnergyRateAssumptions = {
+  electric: 0.32,
+  electricProvenance: BUILTIN_PROVENANCE,
+  gas: 0.11,
+  gasProvenance: BUILTIN_PROVENANCE,
+  district: 0.16,
+  districtProvenance: BUILTIN_PROVENANCE,
+  oil: 0.1,
+  oilProvenance: BUILTIN_PROVENANCE,
+  biomass: 0.08,
+  biomassProvenance: BUILTIN_PROVENANCE,
+};
+
 export type Assumptions = {
   equityMode: "percent" | "eur";
   equityPercent: number;
@@ -145,6 +193,8 @@ export type Assumptions = {
   fallbackCommissionPercent: number;
   /** Where `fallbackCommissionPercent` came from. */
   commissionProvenance: Provenance;
+  /** The heating rate per fuel, and where each one came from. */
+  energyRates: EnergyRateAssumptions;
   /** Upkeep of a house you own, per m2 of living area and year, before the age factor. A flat's Hausgeld already covers it. */
   maintenanceEurPerM2Year: number;
   /** Grundsteuer for a house you own, per year. */
@@ -178,6 +228,7 @@ export const DEFAULT_ASSUMPTIONS: Assumptions = {
   registerProvenance: BUILTIN_PROVENANCE,
   fallbackCommissionPercent: 3.57,
   commissionProvenance: BUILTIN_PROVENANCE,
+  energyRates: DEFAULT_ENERGY_RATES,
   maintenanceEurPerM2Year: 10,
   propertyTaxEurYear: 450,
   insuranceEurPerM2Year: 2.5,
