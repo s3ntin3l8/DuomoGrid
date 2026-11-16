@@ -355,32 +355,3 @@ export async function fetchEnergyPrices(
     fetchedAt: now.toISOString(),
   };
 }
-
-/**
- * The energy prices are shown in the settings and are not fed into the analysis.
- *
- * The heating rate per fuel lives in `FUEL_RATE` in `src/domain/analyze.ts`. Wiring the published
- * prices into it needs an accepted value per fuel, the way the interest rate has one, and that is
- * tracked as its own issue. Until then the published prices are a readout, and the built-in rates
- * stay in use.
- */
-export type EnergyRates = {
-  /** The household electricity price, euro per kWh. */
-  electric: number | null;
-  /** The household gas price, euro per kWh. */
-  gas: number | null;
-  /** The period each price belongs to. */
-  electricAsOf: string;
-  gasAsOf: string;
-};
-
-export function energyRatesFrom(prices: EnergyPrices | null): EnergyRates | null {
-  if (!prices) return null;
-  if (prices.electricityEurPerKwh == null && prices.gasEurPerKwh == null) return null;
-  return {
-    electric: prices.electricityEurPerKwh,
-    gas: prices.gasEurPerKwh,
-    electricAsOf: prices.electricityAsOf,
-    gasAsOf: prices.gasAsOf,
-  };
-}

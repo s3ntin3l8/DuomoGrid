@@ -3,7 +3,7 @@ import type { Bodenrichtwert } from "./bodenrichtwert.js";
 import type { DescriptionFinding } from "./describe.js";
 import type { DistrictSaleBand } from "./district-band.js";
 import type { PriceHistory } from "./history.js";
-import type { Assumptions, Flag, ListingInput, Subscore } from "./types.js";
+import type { Assumptions, EnergyRate, Flag, ListingInput, Subscore } from "./types.js";
 
 /** The score from which the verdict reads "worth a look". `maxOffer` solves for the price at this score. */
 export const WORTH_A_LOOK = 65;
@@ -91,15 +91,22 @@ function lerp(ratio: number, points: [number, number][]): number {
 
 type Fuel = "heatpump" | "electric" | "storage" | "district" | "oil" | "biomass" | "biogas" | "gas";
 
-const FUEL_RATE: Record<Fuel, number> = {
-  heatpump: 0.28,
-  electric: 0.32,
-  storage: 0.32,
-  district: 0.16,
-  oil: 0.1,
-  biomass: 0.08,
-  biogas: 0.11,
-  gas: 0.11,
+/**
+ * Which heating rate each fuel uses.
+ *
+ * The eight fuels collapse into five rates, because what matters is what burns: a heat pump, an
+ * electric heater and night storage all burn electricity, and biogas is sold as gas. A fuel that
+ * is not named uses the `unknown` rate.
+ */
+const FUEL_RATE_KEY: Record<Fuel, EnergyRate> = {
+  heatpump: "electric",
+  electric: "electric",
+  storage: "electric",
+  district: "district",
+  oil: "oil",
+  biomass: "biomass",
+  biogas: "gas",
+  gas: "gas",
 };
 
 /**
@@ -316,7 +323,7 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
 
   const kwh = listing.energyKwh != null && listing.energyKwh > 0 ? listing.energyKwh : listing.energyClass ? (CLASS_KWH[listing.energyClass] ?? null) : null;
   const fuel = fuelOf(listing);
-  const euroKwh = fuel ? FUEL_RATE[fuel] : 0.12;
+  const euroKwh = assumptions.energyRates[fuel ? FUEL_RATE_KEY[fuel] : "unknown"];
   const annualHeating = kwh != null && living != null && living > 0 && listing.propertyType !== "land" ? roundEuro(kwh * living * euroKwh) : null;
   const monthlyHeating = annualHeating != null ? roundEuro(annualHeating / 12) : null;
   const monthlyCondoFee = listing.condoFeeEur != null ? roundEuro(listing.condoFeeEur) : listing.propertyType === "house" || listing.propertyType === "multi" ? 0 : null;
@@ -497,8 +504,8 @@ export function analyze(listing: ListingInput, assumptions: Assumptions, market:
   // One adjustment for the heating, never a stack: the worst applicable penalty, or a bonus only when there is none.
   const nowYear = market.nowYear ?? new Date().getFullYear();
   const heatingAge = market.heatingReplacedYear != null ? nowYear - market.heatingReplacedYear : null;
-  // Direct electric heat is priced at its real cost (0.32) but takes no energy adjustment, deliberately: only oil, night
-  // storage and gas are penalised, as before, and the energy class already carries the electric case.
+  // Direct electric heat is priced at the owner's electricity rate but takes no energy adjustment, deliberately: only oil,
+  // night storage and gas are penalised, as before, and the energy class already carries the electric case.
   // A stated heat pump or district heat is not made old by a boiler's age.
   const oldHeating = heatingAge != null && heatingAge >= 30 && fuel !== "heatpump" && fuel !== "district";
   if (oilOrStorage) {

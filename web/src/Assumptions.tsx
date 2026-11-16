@@ -1,15 +1,37 @@
 import { useState } from "react";
-import type { Assumptions, MarketSnapshot, Provenance, StateOption, Suggestion, Suggestions } from "./api";
+import type { Assumptions, EnergyRate, MarketSnapshot, Provenance, StateOption, Suggestion, Suggestions } from "./api";
 
 /** The fields that can follow the market. */
-type MarketField = "interest" | "notary" | "register" | "commission";
+type MarketField = "interest" | "notary" | "register" | "commission" | EnergyRate;
 
 const FIELD_LABELS: Record<MarketField, string> = {
   interest: "Interest rate",
   notary: "Notary",
   register: "Land register",
   commission: "Buyer commission if missing",
+  electric: "Electricity",
+  gas: "Gas",
+  district: "District heat",
+  oil: "Heating oil",
+  biomass: "Wood and pellets",
+  unknown: "Fuel not named",
 };
+
+/**
+ * The heating rates, and what each one is for.
+ *
+ * The first five cover the eight fuels the analysis knows: a heat pump, an electric heater and
+ * night storage all burn electricity, and biogas is sold as gas. The last rate stands in for a
+ * home that names no fuel at all.
+ */
+const ENERGY_FIELDS: { field: EnergyRate; label: string; detail: string }[] = [
+  { field: "electric", label: "Electricity", detail: "A heat pump, an electric heater and night storage all burn electricity." },
+  { field: "gas", label: "Gas", detail: "Biogas is sold at the gas rate." },
+  { field: "district", label: "District heat", detail: "There is no national average. Local tariffs vary by more than double, so use your own." },
+  { field: "oil", label: "Heating oil", detail: "Sold by the dealer. There is no published household price." },
+  { field: "biomass", label: "Wood and pellets", detail: "Sold by the dealer. There is no published household price." },
+  { field: "unknown", label: "Fuel not named", detail: "The price of the heat itself, for a home whose heating the exposé does not name." },
+];
 
 export function AssumptionsForm({
   initial,
@@ -55,10 +77,34 @@ export function AssumptionsForm({
     } else if (field === "register") {
       set("registerPercent", value);
       set("registerProvenance", own);
-    } else {
+    } else if (field === "commission") {
       set("fallbackCommissionPercent", value);
       set("commissionProvenance", own);
+    } else {
+      set("energyRates", {
+        ...draft.energyRates,
+        [field]: value,
+        [`${field}Provenance`]: own,
+      } as Assumptions["energyRates"]);
     }
+  }
+
+  /** The value of a market-ish field, whatever kind it is. */
+  function valueOf(field: MarketField): number {
+    if (field === "interest") return draft.interestPercent;
+    if (field === "notary") return draft.notaryPercent;
+    if (field === "register") return draft.registerPercent;
+    if (field === "commission") return draft.fallbackCommissionPercent;
+    return draft.energyRates[field];
+  }
+
+  /** Where a market-ish field's value came from. */
+  function provenanceOf(field: MarketField): Provenance {
+    if (field === "interest") return draft.interestProvenance;
+    if (field === "notary") return draft.notaryProvenance;
+    if (field === "register") return draft.registerProvenance;
+    if (field === "commission") return draft.commissionProvenance;
+    return draft.energyRates[`${field}Provenance`];
   }
 
   async function save() {
@@ -202,6 +248,33 @@ export function AssumptionsForm({
       </section>
 
       <section className="block">
+        <h3>Heating</h3>
+        <p className="meta">
+          What a kWh of heat costs you, per fuel. Electricity and gas have a published household
+          price. District heat, oil and biomass are sold locally, and a home that names no fuel
+          uses its own rate.
+        </p>
+        <div className="fields">
+          {ENERGY_FIELDS.map(({ field, label, detail }) => (
+            <MarketFieldRow
+              key={field}
+              label={`${label}, euro per kWh`}
+              hint={detail}
+              unit="perKwh"
+              value={valueOf(field)}
+              provenance={provenanceOf(field)}
+              suggestion={suggestions.energy?.[field] ?? null}
+              onChange={(value) => setValueOf(field, value)}
+              onAccept={() => setAccepted((current) => (current.includes(field) ? current : [...current, field]))}
+              onPin={() => setPinned((current) => (current.includes(field) ? current : [...current, field]))}
+              accepted={accepted.includes(field)}
+              pinned={pinned.includes(field)}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="block">
         <h3>Owning and renting</h3>
         <div className="fields">
           <div className="pair">
@@ -276,8 +349,7 @@ function RatesPanel({ market }: { market: MarketSnapshot }) {
         <p className="meta">
           Household prices from {market.energy.source}
           {market.energy.electricityAsOf ? `, electricity ${market.energy.electricityAsOf}` : ""}
-          {market.energy.gasAsOf ? `, gas ${market.energy.gasAsOf}` : ""}. They are shown for reference and do not
-          change the heating cost yet.
+          {market.energy.gasAsOf ? `, gas ${market.energy.gasAsOf}` : ""}.
         </p>
       ) : null}
       {rates.history.length > 1 ? (
@@ -308,9 +380,11 @@ function Readout({ label, value }: { label: string; value: string }) {
  */
 function MarketFieldRow({
   label,
+  hint,
   value,
   provenance,
   suggestion,
+  unit = "percent",
   onChange,
   onAccept,
   onPin,
@@ -318,9 +392,13 @@ function MarketFieldRow({
   pinned,
 }: {
   label: string;
+  /** A line that says what the field is for, shown under it. */
+  hint?: string;
   value: number;
-  provenance: Assumptions["interestProvenance"];
+  provenance: Provenance;
   suggestion: Suggestion | null;
+  /** How the value reads: a percentage or a price per kWh. */
+  unit?: "percent" | "perKwh";
   onChange: (value: number) => void;
   onAccept: () => void;
   onPin: () => void;
@@ -328,7 +406,9 @@ function MarketFieldRow({
   pinned: boolean;
 }) {
   const source = provenance.source;
-  const differs = suggestion != null && Math.abs(suggestion.value - value) > 0.005;
+  // The fields carry different scales: a rate in percent and a price per kWh. A relative
+  // comparison says "different" for both without a threshold per scale.
+  const differs = suggestion != null && Math.abs(suggestion.value - value) > Math.max(Math.abs(value), Math.abs(suggestion.value)) * 0.001;
   return (
     <div className="market-field">
       <div className="market-field-head">
@@ -336,7 +416,7 @@ function MarketFieldRow({
           {label}
           <input
             inputMode="decimal"
-            step="0.01"
+            step={unit === "perKwh" ? "0.0001" : "0.01"}
             value={value}
             onChange={(event) => {
               const parsed = Number(event.target.value);
@@ -346,6 +426,7 @@ function MarketFieldRow({
         </label>
         <span className={`badge ${source}`}>{source}</span>
       </div>
+      {hint ? <p className="meta">{hint}</p> : null}
       {provenance.asOf ? <p className="meta">From {provenance.note ?? "the market"}, {provenance.asOf}.</p> : null}
       {suggestion ? (
         <div className="market-field-market">
@@ -358,7 +439,7 @@ function MarketFieldRow({
           <div className="row-actions">
             {differs ? (
               <button type="button" className="quiet" onClick={onAccept}>
-                Use {suggestion.value.toFixed(2)} %
+                Use {suggestion.value.toFixed(unit === "perKwh" ? 4 : 2)} {unit === "perKwh" ? "€/kWh" : "%"}
               </button>
             ) : null}
             {provenance.source !== "user" ? (

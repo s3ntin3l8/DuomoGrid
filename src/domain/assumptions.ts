@@ -1,8 +1,11 @@
 import {
   BUILTIN_PROVENANCE,
   DEFAULT_ASSUMPTIONS,
+  DEFAULT_ENERGY_RATES,
+  ENERGY_RATES,
   STATES,
   type Assumptions,
+  type EnergyRateAssumptions,
   type Provenance,
   type StateId,
 } from "./types.js";
@@ -49,6 +52,26 @@ function provenanceOr(value: unknown): Provenance {
   return { source, asOf, note };
 }
 
+/**
+ * Read the heating rates.
+ *
+ * A rate is a price per kWh, so it is never negative and never zero: a zero would say the heat is
+ * free. A row saved before the rates existed, or one that carries an unknown fuel, falls back to
+ * the shipped rate with the `builtin` origin.
+ */
+function energyRatesOr(value: unknown): EnergyRateAssumptions {
+  const body = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const rates = { ...DEFAULT_ENERGY_RATES };
+  for (const rate of ENERGY_RATES) {
+    const fallback = DEFAULT_ENERGY_RATES[rate];
+    const raw = body[rate];
+    const parsed = nonNegative(raw, fallback);
+    rates[rate] = parsed > 0 ? parsed : fallback;
+    rates[`${rate}Provenance` as keyof EnergyRateAssumptions] = provenanceOr(body[`${rate}Provenance`]) as never;
+  }
+  return rates;
+}
+
 export function normalizeAssumptions(input: unknown): Assumptions {
   const body = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   const state = typeof body.defaultState === "string" ? body.defaultState.toUpperCase() : "";
@@ -69,6 +92,7 @@ export function normalizeAssumptions(input: unknown): Assumptions {
     registerProvenance: provenanceOr(body.registerProvenance),
     fallbackCommissionPercent: numberOr(body.fallbackCommissionPercent, DEFAULT_ASSUMPTIONS.fallbackCommissionPercent),
     commissionProvenance: provenanceOr(body.commissionProvenance),
+    energyRates: energyRatesOr(body.energyRates),
     maintenanceEurPerM2Year: nonNegative(body.maintenanceEurPerM2Year, DEFAULT_ASSUMPTIONS.maintenanceEurPerM2Year),
     propertyTaxEurYear: nonNegative(body.propertyTaxEurYear, DEFAULT_ASSUMPTIONS.propertyTaxEurYear),
     insuranceEurPerM2Year: nonNegative(body.insuranceEurPerM2Year, DEFAULT_ASSUMPTIONS.insuranceEurPerM2Year),

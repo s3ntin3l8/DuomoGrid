@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyze } from "../../src/domain/analyze.js";
+import { normalizeAssumptions } from "../../src/domain/assumptions.js";
 import { DEFAULT_ASSUMPTIONS, type ListingInput } from "../../src/domain/types.js";
 
 const assumptions = { ...DEFAULT_ASSUMPTIONS };
@@ -343,9 +344,27 @@ describe("analyze with the added exposé data", () => {
     expect(annual({ energySource: "Brennstoffzelle", heating: "Gas" })).toBe(1200);
     expect(annual({ heating: "Gas" })).toBe(1100);
     expect(annual({ energySource: "Biogas" })).toBe(1100);
-    expect(annual({ energySource: "Wärmepumpe" })).toBe(2800);
-    expect(annual({ energySource: "Erdwärme" })).toBe(2800);
+    // A heat pump burns electricity, so it takes the electricity rate. It used to have a rate of
+    // its own, which is not what a heat pump costs.
+    expect(annual({ energySource: "Wärmepumpe" })).toBe(3200);
+    expect(annual({ energySource: "Erdwärme" })).toBe(3200);
     expect(annual({ heating: "Zentralheizung" })).toBe(1200);
+  });
+
+  it("costs the heat at the rate the owner set for that fuel", () => {
+    const own = normalizeAssumptions({
+      ...assumptions,
+      energyRates: { ...assumptions.energyRates, electric: 0.4, gas: 0.2 },
+    });
+    const annual = (partial: Partial<typeof home>, model = own) =>
+      analyze(listing({ ...home, ...partial }), model).annualHeating;
+    expect(annual({ energySource: "Wärmepumpe" })).toBe(4000);
+    expect(annual({ energySource: "Gas" })).toBe(2000);
+    // A fuel whose rate was not touched keeps the shipped one.
+    expect(annual({ energySource: "Öl" })).toBe(1000);
+    // A home that names no fuel uses the owner's rate for that case, not a hardcoded one.
+    const unnamed = normalizeAssumptions({ energyRates: { unknown: 0.2 } });
+    expect(annual({ heating: "Zentralheizung" }, unnamed)).toBe(2000);
   });
 
   it("applies one heating adjustment to the energy subscore, never a stack", () => {
@@ -383,9 +402,10 @@ describe("analyze with the added exposé data", () => {
     expect(read({ heating: "Gas-Brennwertkessel (boiler)" }).flags).not.toContain("Oil or night-storage heating");
     // A label alone still counts, exactly as the oil label always did.
     expect(read({ heating: "Gas-Zentralheizung" })).toMatchObject({ rate: 0.11, score: base - 8 });
-    expect(read({ heating: "Wärmepumpe" })).toMatchObject({ rate: 0.28, score: base + 5 });
+    // A heat pump burns electricity, so it takes the electricity rate.
+    expect(read({ heating: "Wärmepumpe" })).toMatchObject({ rate: 0.32, score: base + 5 });
     expect(read({ heating: "Fernheizung" })).toMatchObject({ rate: 0.16, score: base + 5 });
-    expect(read({ heating: "Erdwärme" })).toMatchObject({ rate: 0.28, score: base + 5 });
+    expect(read({ heating: "Erdwärme" })).toMatchObject({ rate: 0.32, score: base + 5 });
     expect(read({ heating: "Ölheizung" }).score).toBe(base - 12);
     expect(read({ heating: "Nachtspeicher" }).score).toBe(base - 12);
   });

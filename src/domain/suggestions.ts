@@ -1,6 +1,6 @@
-import { fetchEnergyPrices, energyRatesFrom, type EnergyPrices, type GenesisCredentials } from "./energy-prices.js";
+import { fetchEnergyPrices, type EnergyPrices, type GenesisCredentials } from "./energy-prices.js";
 import { fetchMarketRates, suggestInterestRate, type MarketRates, type RateSuggestion } from "./market-rates.js";
-import type { Assumptions, Provenance } from "./types.js";
+import { ENERGY_RATES, type Assumptions, type EnergyRate, type EnergyRateProvenanceKey, type Provenance } from "./types.js";
 
 /**
  * What the desk can offer for a value, and why. A suggestion is never applied on its own: the
@@ -32,11 +32,18 @@ export type MarketSnapshot = {
   note: string | null;
 };
 
+/**
+ * The values a refresh may move: the four financing and buying costs, and the five heating rates.
+ */
+export type MarketField = "interest" | "notary" | "register" | "commission" | EnergyRate;
+
 export type Suggestions = {
   interest: Suggestion | null;
   notary: Suggestion | null;
   register: Suggestion | null;
   commission: Suggestion | null;
+  /** The heating rate for electricity, and the one for gas. The other fuels have no published price. */
+  energy: Partial<Record<EnergyRate, Suggestion>>;
 };
 
 /**
@@ -91,7 +98,43 @@ export function suggestionsFor(snapshot: MarketSnapshot | null): Suggestions {
     notary: ruleSuggestion(NOTARY_SUGGESTION),
     register: ruleSuggestion(REGISTER_SUGGESTION),
     commission: ruleSuggestion(COMMISSION_SUGGESTION),
+    energy: energySuggestions(snapshot?.energy ?? null),
   };
+}
+
+/**
+ * The heating rates on offer.
+ *
+ * Only electricity and gas have a published household price, so only those two get a suggestion.
+ * District heat, oil and biomass are sold locally at prices that vary far more than any average
+ * would suggest, so the desk offers the owner's own figure for them and no market one.
+ */
+function energySuggestions(prices: EnergyPrices | null): Partial<Record<EnergyRate, Suggestion>> {
+  if (!prices) return {};
+  const suggestions: Partial<Record<EnergyRate, Suggestion>> = {};
+  if (prices.electricityEurPerKwh != null) {
+    suggestions.electric = {
+      value: prices.electricityEurPerKwh,
+      asOf: prices.electricityAsOf,
+      source: prices.source,
+      lowPercent: null,
+      highPercent: null,
+      preliminary: false,
+      detail: `Households paid an average of ${(prices.electricityEurPerKwh * 100).toFixed(2)} cents per kWh for electricity in ${prices.electricityAsOf}, including taxes and levies. A heat pump, an electric heater and night storage all burn electricity at this rate.`,
+    };
+  }
+  if (prices.gasEurPerKwh != null) {
+    suggestions.gas = {
+      value: prices.gasEurPerKwh,
+      asOf: prices.gasAsOf,
+      source: prices.source,
+      lowPercent: null,
+      highPercent: null,
+      preliminary: false,
+      detail: `Households paid an average of ${(prices.gasEurPerKwh * 100).toFixed(2)} cents per kWh for gas in ${prices.gasAsOf}, including taxes and levies. Biogas is sold at the gas rate.`,
+    };
+  }
+  return suggestions;
 }
 
 /** A sentence the desk shows under the interest field. */
@@ -112,7 +155,7 @@ function provenanceFor(suggestion: Suggestion): Provenance {
 /**
  * Accept a suggestion. The value becomes a `market` value, so a later refresh may move it again.
  */
-export function applySuggestion(assumptions: Assumptions, field: "interest" | "notary" | "register" | "commission", suggestion: Suggestion | null): Assumptions {
+export function applySuggestion(assumptions: Assumptions, field: MarketField, suggestion: Suggestion | null): Assumptions {
   if (!suggestion) return assumptions;
   const next: Assumptions = { ...assumptions };
   if (field === "interest") {
@@ -124,9 +167,12 @@ export function applySuggestion(assumptions: Assumptions, field: "interest" | "n
   } else if (field === "register") {
     next.registerPercent = suggestion.value;
     next.registerProvenance = provenanceFor(suggestion);
-  } else {
+  } else if (field === "commission") {
     next.fallbackCommissionPercent = suggestion.value;
     next.commissionProvenance = provenanceFor(suggestion);
+  } else {
+    next.energyRates = { ...next.energyRates, [field]: suggestion.value };
+    next.energyRates[`${field}Provenance` as EnergyRateProvenanceKey] = provenanceFor(suggestion);
   }
   return next;
 }
@@ -134,13 +180,17 @@ export function applySuggestion(assumptions: Assumptions, field: "interest" | "n
 /**
  * Mark a value as the owner's own, so a refresh leaves it alone.
  */
-export function pinField(assumptions: Assumptions, field: "interest" | "notary" | "register" | "commission"): Assumptions {
+export function pinField(assumptions: Assumptions, field: MarketField): Assumptions {
   const next: Assumptions = { ...assumptions };
   const provenance: Provenance = { source: "user", asOf: null, note: null };
   if (field === "interest") next.interestProvenance = provenance;
   else if (field === "notary") next.notaryProvenance = provenance;
   else if (field === "register") next.registerProvenance = provenance;
-  else next.commissionProvenance = provenance;
+  else if (field === "commission") next.commissionProvenance = provenance;
+  else {
+    next.energyRates = { ...next.energyRates };
+    next.energyRates[`${field}Provenance` as EnergyRateProvenanceKey] = provenance;
+  }
   return next;
 }
 
@@ -169,6 +219,15 @@ export function refreshAssumptions(assumptions: Assumptions, suggestions: Sugges
     next.fallbackCommissionPercent = suggestions.commission.value;
     next.commissionProvenance = provenanceFor(suggestions.commission);
   }
+  // A heating rate follows the market only when the owner accepted one and the feed still has it.
+  next.energyRates = { ...next.energyRates };
+  for (const rate of ENERGY_RATES) {
+    const suggestion = suggestions.energy[rate];
+    if (!suggestion) continue;
+    if (next.energyRates[`${rate}Provenance`].source !== "market") continue;
+    next.energyRates[rate] = suggestion.value;
+    next.energyRates[`${rate}Provenance`] = provenanceFor(suggestion);
+  }
   return next;
 }
 
@@ -195,5 +254,4 @@ export async function readMarketSnapshot(
   return { rates, energy, fetchedAt: now.toISOString(), note };
 }
 
-export { energyRatesFrom };
 export type { EnergyPrices, MarketRates, RateSuggestion };

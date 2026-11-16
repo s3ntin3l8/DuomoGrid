@@ -1,3 +1,4 @@
+import { deflateRawSync } from "node:zlib";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
@@ -13,8 +14,48 @@ Dezimalstellen;2;
 `;
 
 /**
- * Answer every fetch with the Bundesbank body, except the GENESIS calls, which need an account
- * and must not reach the network in a test.
+ * The flat file of Destatis table 61243, with the header and the columns the module reads: the
+ * half-year, the area, the price kind and the consumption class, then the value.
+ */
+const GENESIS_HEADER =
+  "statistics_code;statistics_label;time_code;time_label;time;1_variable_code;1_variable_label;1_variable_attribute_code;1_variable_attribute_label;2_variable_code;2_variable_label;2_variable_attribute_code;2_variable_attribute_label;3_variable_code;3_variable_label;3_variable_attribute_code;3_variable_attribute_label;4_variable_code;4_variable_label;4_variable_attribute_code;4_variable_attribute_label;value;value_unit;value_variable_code;value_variable_label";
+
+const GENESIS_CSV = `${GENESIS_HEADER}
+61243;x;JAHR;Jahr;2026;HALBJA;Halbjahre;HALBJH1;1. Halbjahr;DINSG;Deutschland insgesamt;DG;Deutschland;PREAT1;Preisarten;PRE-BRUTTO;Durchschnittspreise inkl. Steuern, Abgaben, Umlagen;VBRST1;Klassen;HH-STR-DC;2 500 bis unter 5 000 KWh;0,3618;EUR/kWh;PRE060;x
+`;
+
+/** A zip holding one csv, the way GENESIS answers. */
+function genesisZip(): Uint8Array {
+  const name = Buffer.from("table.csv");
+  const data = Buffer.from(GENESIS_CSV);
+  const payload = deflateRawSync(data);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(8, 8);
+  local.writeUInt32LE(payload.length, 18);
+  local.writeUInt32LE(data.length, 22);
+  local.writeUInt16LE(name.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(8, 10);
+  central.writeUInt32LE(payload.length, 20);
+  central.writeUInt32LE(data.length, 24);
+  central.writeUInt16LE(name.length, 28);
+  central.writeUInt32LE(0, 42);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(central.length + name.length, 12);
+  eocd.writeUInt32LE(30 + name.length + payload.length, 16);
+  return new Uint8Array(Buffer.concat([local, name, payload, central, name, eocd]));
+}
+
+/**
+ * Answer every fetch with the Bundesbank body, and the GENESIS calls with a real flat file, so
+ * both halves of the market read.
  */
 function stubMarketFetch() {
   return vi.stubGlobal(
@@ -22,7 +63,7 @@ function stubMarketFetch() {
     vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("genesis.destatis.de")) {
-        return new Response(JSON.stringify({ Code: 2, Content: "no account" }), { status: 404 });
+        return new Response(genesisZip(), { status: 200 });
       }
       return new Response(BUNDESBANK_BODY, { status: 200 });
     }),
@@ -40,6 +81,7 @@ describe("routes/assumptions", () => {
 
   afterEach(() => {
     delete process.env.INGEST_TOKEN;
+    delete process.env.DESTATIS_API_TOKEN;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -314,6 +356,59 @@ describe("routes/assumptions", () => {
     const second = await app.inject({ method: "GET", url: "/assumptions", headers });
     expect(second.json().market.note).toMatch(/last known values/);
     expect(second.json().market.rates.secured10yPercent).toBe(3.91);
+    await app.close();
+  });
+
+  it("accepts a published heating rate and marks it as a market value", async () => {
+    stubMarketFetch();
+    process.env.INGEST_TOKEN = "test-token";
+    // The energy prices need a GENESIS account; without one they are never read. The env plugin
+    // reads it once, when the app is built, so it is set here and put back straight away: the
+    // environment is shared with the other test files.
+    const previous = process.env.DESTATIS_API_TOKEN;
+    process.env.DESTATIS_API_TOKEN = "test-token";
+    const app = await buildApp();
+    if (previous === undefined) delete process.env.DESTATIS_API_TOKEN;
+    else process.env.DESTATIS_API_TOKEN = previous;
+    const headers = { authorization: "Bearer test-token" };
+    const res = await app.inject({
+      method: "PUT",
+      url: "/assumptions",
+      headers,
+      payload: { accept: ["electric"] },
+    });
+    expect(res.statusCode).toBe(200);
+    const assumptions = res.json().assumptions;
+    expect(assumptions.energyRates.electricProvenance.source).toBe("market");
+    expect(assumptions.energyRates.electric).toBeCloseTo(0.3618, 4);
+    await app.close();
+  });
+
+  it("keeps a heating rate the owner pinned when the market is read again", async () => {
+    stubMarketFetch();
+    process.env.INGEST_TOKEN = "test-token";
+    // The energy prices need a GENESIS account; without one they are never read, and the refresh
+    // would have nothing to move the rate with.
+    const previous = process.env.DESTATIS_API_TOKEN;
+    process.env.DESTATIS_API_TOKEN = "test-token";
+    const app = await buildApp();
+    if (previous === undefined) delete process.env.DESTATIS_API_TOKEN;
+    else process.env.DESTATIS_API_TOKEN = previous;
+    const headers = { authorization: "Bearer test-token" };
+    // The rate follows the market.
+    await app.inject({ method: "PUT", url: "/assumptions", headers, payload: { accept: ["electric"] } });
+    const accepted = await app.inject({ method: "GET", url: "/assumptions", headers });
+    expect(accepted.json().assumptions.energyRates.electricProvenance.source).toBe("market");
+    // The owner takes it back into their own hands.
+    await app.inject({
+      method: "PUT",
+      url: "/assumptions",
+      headers,
+      payload: { energyRates: { electric: 0.4, electricProvenance: { source: "user", asOf: null, note: null } } },
+    });
+    const refreshed = await app.inject({ method: "POST", url: "/assumptions/refresh", headers });
+    expect(refreshed.json().assumptions.energyRates.electric).toBe(0.4);
+    expect(refreshed.json().assumptions.energyRates.electricProvenance.source).toBe("user");
     await app.close();
   });
 

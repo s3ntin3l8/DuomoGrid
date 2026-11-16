@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 import { installIngestGuard } from "../auth/guard.js";
 import { normalizeAssumptions } from "../domain/assumptions.js";
-import { applySuggestion, pinField, readMarketSnapshot, refreshAssumptions, suggestionsFor, type MarketSnapshot, type Suggestions } from "../domain/suggestions.js";
+import { applySuggestion, pinField, readMarketSnapshot, refreshAssumptions, suggestionsFor, type MarketField, type MarketSnapshot } from "../domain/suggestions.js";
 import { DEFAULT_ASSUMPTIONS, STATES, type Assumptions } from "../domain/types.js";
 import { settings } from "../db/schema.js";
 
@@ -10,6 +10,9 @@ import { settings } from "../db/schema.js";
 const SNAPSHOT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 /** How long a failed read is remembered before it is tried again. */
 const FAILED_RETRY_MS = 5 * 60 * 1000;
+
+/** Every field a refresh may move, in the order the desk shows them. */
+const MARKET_FIELDS: MarketField[] = ["interest", "notary", "register", "commission", "electric", "gas", "district", "oil", "biomass", "unknown"];
 
 export async function assumptionsRoute(app: FastifyInstance) {
   installIngestGuard(app, "/assumptions");
@@ -230,13 +233,19 @@ export async function assumptionsRoute(app: FastifyInstance) {
     const market = await snapshot(false);
     const suggestions = suggestionsFor(market);
     let next = assumptions;
-    for (const field of ["interest", "notary", "register", "commission"]) {
-      if (!Array.isArray(body.accept) || !body.accept.includes(field)) continue;
-      next = applySuggestion(next, field as "interest" | "notary" | "register" | "commission", suggestions[field as keyof Suggestions] ?? null);
+    const accepted = Array.isArray(body.accept) ? body.accept.filter((name): name is string => typeof name === "string") : [];
+    const pinned = Array.isArray(body.pin) ? body.pin.filter((name): name is string => typeof name === "string") : [];
+    for (const field of MARKET_FIELDS) {
+      if (!accepted.includes(field)) continue;
+      const suggestion =
+        field === "interest" || field === "notary" || field === "register" || field === "commission"
+          ? suggestions[field]
+          : suggestions.energy[field] ?? null;
+      next = applySuggestion(next, field, suggestion);
     }
-    for (const field of ["interest", "notary", "register", "commission"]) {
-      if (!Array.isArray(body.pin) || !body.pin.includes(field)) continue;
-      next = pinField(next, field as "interest" | "notary" | "register" | "commission");
+    for (const field of MARKET_FIELDS) {
+      if (!pinned.includes(field)) continue;
+      next = pinField(next, field);
     }
     save(next);
     return { assumptions: next, states: STATES, market, suggestions };

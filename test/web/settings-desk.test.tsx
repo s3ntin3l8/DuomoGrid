@@ -86,6 +86,26 @@ const SUGGESTIONS: Suggestions = {
     preliminary: false,
     detail: "Since 2020 the buyer pays at most half the commission, which is 3.57 percent including VAT.",
   },
+  energy: {
+    electric: {
+      value: 0.3618,
+      asOf: "2026-H1",
+      source: "Statistisches Bundesamt, Durchschnittspreise für Strom und Gas",
+      lowPercent: null,
+      highPercent: null,
+      preliminary: false,
+      detail: "Households paid an average of 36.18 cents per kWh for electricity in 2026-H1.",
+    },
+    gas: {
+      value: 0.1156,
+      asOf: "2026-H1",
+      source: "Statistisches Bundesamt, Durchschnittspreise für Strom und Gas",
+      lowPercent: null,
+      highPercent: null,
+      preliminary: false,
+      detail: "Households paid an average of 11.56 cents per kWh for gas in 2026-H1.",
+    },
+  },
 };
 
 const INITIAL: Assumptions = {
@@ -102,6 +122,20 @@ const INITIAL: Assumptions = {
   registerProvenance: { source: "builtin", asOf: null, note: null },
   fallbackCommissionPercent: 3.57,
   commissionProvenance: { source: "builtin", asOf: null, note: null },
+  energyRates: {
+    electric: 0.32,
+    electricProvenance: { source: "builtin", asOf: null, note: null },
+    gas: 0.11,
+    gasProvenance: { source: "builtin", asOf: null, note: null },
+    district: 0.16,
+    districtProvenance: { source: "builtin", asOf: null, note: null },
+    oil: 0.1,
+    oilProvenance: { source: "builtin", asOf: null, note: null },
+    biomass: 0.08,
+    biomassProvenance: { source: "builtin", asOf: null, note: null },
+    unknown: 0.12,
+    unknownProvenance: { source: "builtin", asOf: null, note: null },
+  },
   horizonYears: 10,
   equityReturnPercent: 3,
   appreciationPercent: 1.5,
@@ -264,6 +298,119 @@ describe("web settings screen", () => {
     const saved = onSave.mock.calls[0]?.[0] as Assumptions;
     expect(saved.interestPercent).toBe(2.9);
     expect(saved.interestProvenance.source).toBe("user");
+  });
+
+  it("shows a heating rate per fuel, with the published price on offer", async () => {
+    await act(async () => {
+      root.render(
+        <AssumptionsForm
+          initial={INITIAL}
+          states={[]}
+          market={MARKET}
+          suggestions={SUGGESTIONS}
+          onSave={vi.fn().mockResolvedValue(undefined)}
+          onRefresh={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+    });
+
+    // Every fuel has a rate.
+    for (const fuel of ["Electricity", "Gas", "District heat", "Heating oil", "Wood and pellets", "Fuel not named"]) {
+      expect(host.textContent).toContain(fuel);
+    }
+    // The two with a published price offer it.
+    expect(host.textContent).toContain("Use 0.3618 €/kWh");
+    expect(host.textContent).toContain("Use 0.1156 €/kWh");
+    // The three without one do not.
+    expect(host.textContent).toContain("There is no national average");
+    expect(host.textContent).toContain("Sold by the dealer");
+  });
+
+  it("accepts a published heating rate and saves it as the market value", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    await act(async () => {
+      root.render(
+        <AssumptionsForm
+          initial={INITIAL}
+          states={[]}
+          market={MARKET}
+          suggestions={SUGGESTIONS}
+          onSave={onSave}
+          onRefresh={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+    });
+
+    const electricity = Array.from(host.querySelectorAll(".market-field")).find((field) =>
+      field.textContent?.includes("Electricity, euro per kWh"),
+    );
+    const use = Array.from(electricity?.querySelectorAll("button") ?? []).find((b) =>
+      b.textContent?.includes("Use 0.3618"),
+    );
+    await act(async () => {
+      use?.click();
+    });
+    expect(electricity?.textContent).toContain("Will be used on save.");
+
+    const form = host.querySelector("form");
+    await act(async () => {
+      form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(onSave).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ accept: ["electric"] }),
+    );
+  });
+
+  it("makes a typed heating rate the owner's own", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    await act(async () => {
+      root.render(
+        <AssumptionsForm
+          initial={INITIAL}
+          states={[]}
+          market={MARKET}
+          suggestions={SUGGESTIONS}
+          onSave={onSave}
+          onRefresh={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+    });
+
+    const electricity = Array.from(host.querySelectorAll(".market-field")).find((field) =>
+      field.textContent?.includes("Electricity, euro per kWh"),
+    );
+    const input = electricity?.querySelector("input") as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "0.4");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const form = host.querySelector("form");
+    await act(async () => {
+      form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    const saved = onSave.mock.calls[0]?.[0] as Assumptions;
+    expect(saved.energyRates.electric).toBe(0.4);
+    expect(saved.energyRates.electricProvenance.source).toBe("user");
+  });
+
+  it("keeps the form mounted when a refresh moves no heating rate", async () => {
+    // The heating rates carry their own provenance, so a refreshed figure alone must not change
+    // the key: that would remount the form and throw away the draft.
+    const before = settingsKey(INITIAL);
+    const after = settingsKey({
+      ...INITIAL,
+      energyRates: {
+        ...INITIAL.energyRates,
+        electricProvenance: { source: "market", asOf: "2026-H1", note: "Statistisches Bundesamt" },
+      },
+    });
+    expect(after).toBe(before);
+    // A rate that moved does change the key, so the form shows the new figure.
+    expect(settingsKey({ ...INITIAL, energyRates: { ...INITIAL.energyRates, electric: 0.3618 } })).not.toBe(before);
   });
 
   it("reads the market again and drops a pending choice", async () => {
