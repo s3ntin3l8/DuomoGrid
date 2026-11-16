@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.6](https://github.com/s3ntin3l8/DuomoGrid/compare/v0.1.5...v0.1.6) (2026-11-16)
+
+
+### Features
+
+* add LLM description extraction, in-desk AI chat, Makler inquiry, and MCP server ([#45](https://github.com/s3ntin3l8/DuomoGrid/issues/45)) ([ad227a1](https://github.com/s3ntin3l8/DuomoGrid/commit/ad227a17c96a6682378e3cf9a4ac3cd6b9b08323))
+* **auth:** let the desk use forward-auth instead of a pasted ingest token ([#44](https://github.com/s3ntin3l8/DuomoGrid/issues/44)) ([7fb3775](https://github.com/s3ntin3l8/DuomoGrid/commit/7fb3775b6a4f841ecb42afbefc101786a22af0ea))
+* compare buying and renting on net wealth over a horizon ([#43](https://github.com/s3ntin3l8/DuomoGrid/issues/43)) ([b15b72e](https://github.com/s3ntin3l8/DuomoGrid/commit/b15b72e00612078b9eda7cc5c9a58160c6133aa7)), closes [#36](https://github.com/s3ntin3l8/DuomoGrid/issues/36)
+* **extension:** pair the popup from the open desk ([#46](https://github.com/s3ntin3l8/DuomoGrid/issues/46)) ([ae9446f](https://github.com/s3ntin3l8/DuomoGrid/commit/ae9446fd50ec5ea640743f222437357647fec9fc))
+* fixed-rate period, remaining debt and rate sensitivity ([#41](https://github.com/s3ntin3l8/DuomoGrid/issues/41)) ([380b899](https://github.com/s3ntin3l8/DuomoGrid/commit/380b89917fa5b79274e2b788cad503797e418f52)), closes [#35](https://github.com/s3ntin3l8/DuomoGrid/issues/35)
+* make the heating rates the owner's, per fuel ([#54](https://github.com/s3ntin3l8/DuomoGrid/issues/54)) ([6a117bf](https://github.com/s3ntin3l8/DuomoGrid/commit/6a117bf91feac3921ffa277011fd2d93b40da14a))
+* open a listing summary on the map before the detail ([#50](https://github.com/s3ntin3l8/DuomoGrid/issues/50)) ([96a0743](https://github.com/s3ntin3l8/DuomoGrid/commit/96a07437c1ca0c6b1edc42e3e013b53825166f79))
+* **score:** count maintenance, Grundsteuer and insurance in the monthly cost ([#38](https://github.com/s3ntin3l8/DuomoGrid/issues/38)) ([dba4e57](https://github.com/s3ntin3l8/DuomoGrid/commit/dba4e570fa518b99908299ea8142e210757718a1)), closes [#34](https://github.com/s3ntin3l8/DuomoGrid/issues/34)
+* **settings:** a settings menu with market rates and energy prices ([#48](https://github.com/s3ntin3l8/DuomoGrid/issues/48)) ([636b264](https://github.com/s3ntin3l8/DuomoGrid/commit/636b264ec05afa341c1db26aa25eec1057abdda9))
+* the highest price that fits the budget or a target score ([#42](https://github.com/s3ntin3l8/DuomoGrid/issues/42)) ([d54c61b](https://github.com/s3ntin3l8/DuomoGrid/commit/d54c61bfa52736a40124b557e86f93d19c7a4bc2)), closes [#37](https://github.com/s3ntin3l8/DuomoGrid/issues/37)
+
+
+### Bug Fixes
+
+* read the Destatis energy prices from the right columns ([#51](https://github.com/s3ntin3l8/DuomoGrid/issues/51)) ([5d1978f](https://github.com/s3ntin3l8/DuomoGrid/commit/5d1978f66a30890d3d5eaae7ca0877d5c01e594b))
+* verify rental extraction against saved portal pages ([#55](https://github.com/s3ntin3l8/DuomoGrid/issues/55)) ([8d68aa8](https://github.com/s3ntin3l8/DuomoGrid/commit/8d68aa83b626929f4afb616b57bacc3361cc132c))
+
 ## [0.1.5](https://github.com/s3ntin3l8/DuomoGrid/compare/v0.1.4...v0.1.5) (2026-11-14)
 
 

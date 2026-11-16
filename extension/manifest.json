@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DuomoGrid",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Reads the open ImmoScout24 or Immowelt listing and sends it to your DuomoGrid server.",
   "permissions": [
     "storage",
