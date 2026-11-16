@@ -61,7 +61,7 @@ const SUGGESTIONS: Suggestions = {
   },
   notary: {
     value: 1.5,
-    asOf: "2026",
+    asOf: "",
     source: "Gerichts- und Notarkostengesetz (GNotKG)",
     lowPercent: null,
     highPercent: null,
@@ -70,7 +70,7 @@ const SUGGESTIONS: Suggestions = {
   },
   register: {
     value: 0.5,
-    asOf: "2026",
+    asOf: "",
     source: "Gerichts- und Notarkostengesetz (GNotKG)",
     lowPercent: null,
     highPercent: null,
@@ -79,7 +79,7 @@ const SUGGESTIONS: Suggestions = {
   },
   commission: {
     value: 3.57,
-    asOf: "2026",
+    asOf: "",
     source: "§ 656c BGB",
     lowPercent: null,
     highPercent: null,

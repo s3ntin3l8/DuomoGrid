@@ -275,6 +275,28 @@ describe("routes/assumptions", () => {
     await app.close();
   });
 
+  it("keeps the stale marker while the retry runs, until a new read lands", async () => {
+    stubMarketFetch();
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    await app.inject({ method: "GET", url: "/assumptions", headers });
+
+    const failing = vi.fn(async () => new Response("boom", { status: 500 }));
+    vi.stubGlobal("fetch", failing);
+    await app.inject({ method: "POST", url: "/assumptions/refresh", headers });
+
+    // Past the window the market is tried again, but the figures on screen are still the last
+    // known ones and say so until the new read lands.
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 10 * 60 * 1000);
+    const retried = await app.inject({ method: "GET", url: "/assumptions", headers });
+    expect(retried.json().market.note).toMatch(/last known values/);
+    expect(retried.json().market.rates.secured10yPercent).toBe(3.91);
+    vi.restoreAllMocks();
+    await app.close();
+  });
+
   it("says the figures are the last known ones on every request after a failed read", async () => {
     stubMarketFetch();
     process.env.INGEST_TOKEN = "test-token";

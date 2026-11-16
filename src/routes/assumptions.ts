@@ -118,8 +118,15 @@ export async function assumptionsRoute(app: FastifyInstance) {
     // A read that failed is remembered for a few minutes, so an offline host does not pay the
     // timeout on every request. Past that window the market is tried again in the background.
     if (failed && now < failed.until) return failed.snapshot;
-    const stale = failed != null || !cached || now - cached.at >= SNAPSHOT_MAX_AGE_MS;
-    if (failed) failed = null;
+    if (failed) {
+      // The window has passed, so the market is tried again. The remembered snapshot is still
+      // what the desk shows meanwhile, note and all, until the new read lands.
+      const remembered = failed.snapshot;
+      failed = null;
+      void readSnapshot().catch(() => undefined);
+      return remembered;
+    }
+    const stale = !cached || now - cached.at >= SNAPSHOT_MAX_AGE_MS;
     if (!stale && known) return known;
     if (!known) return readSnapshot();
     // There is a snapshot to show, so the read happens in the background and the desk goes on.
