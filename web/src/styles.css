@@ -169,6 +169,80 @@ td:first-child { color: var(--muted); white-space: nowrap; }
 .map-canvas .maplibregl-map { height: 100%; font: inherit; }
 .text-button { border: 0; background: none; color: var(--cedar); padding: 0 0 0 8px; }
 
+/* The pin: a badge with the score, coloured by the server's own verdict band. */
+.map-pin {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 2px solid var(--sheet);
+  box-shadow: 0 1px 4px rgba(28, 23, 18, 0.4);
+  padding: 0;
+  display: grid; place-items: center;
+  cursor: pointer;
+  font: inherit;
+  color: white;
+}
+.map-pin-label { font-size: 12px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.map-pin.band-workable { background: var(--good); }
+.map-pin.band-look { background: var(--cedar); }
+.map-pin.band-mixed { background: var(--warn); }
+.map-pin.band-careful { background: var(--bad); }
+.map-pin.band-rent { background: var(--info); }
+/* An approximate point is hollow, so the cue survives greyscale and colour blindness. */
+.map-pin.approximate { background: var(--sheet); border-width: 3px; }
+.map-pin.approximate .map-pin-label { color: var(--ink); }
+.map-pin.approximate.band-workable { border-color: var(--good); }
+.map-pin.approximate.band-look { border-color: var(--cedar); }
+.map-pin.approximate.band-mixed { border-color: var(--warn); }
+.map-pin.approximate.band-careful { border-color: var(--bad); }
+.map-pin.approximate.band-rent { border-color: var(--info); }
+.map-pin:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+/* The hover preview. */
+.map-tooltip-popup .maplibregl-popup-content { padding: 8px 10px; }
+.map-tooltip { display: grid; gap: 2px; max-width: 240px; }
+.map-tooltip-title { font-weight: 600; }
+.map-tooltip-meta { color: var(--muted); font-size: 13px; }
+.map-tooltip-score { font-size: 13px; color: var(--muted); }
+
+/* The overlay on a click. */
+.map-card { display: grid; gap: 8px; min-width: 230px; }
+.map-card-heading {
+  display: grid; gap: 2px; min-width: 0;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+}
+.map-card-title { grid-column: 1; grid-row: 1; }
+.map-card-close { grid-column: 2; grid-row: 1; }
+.map-card-heading .map-card-meta { grid-column: 1 / -1; }
+.map-card-title { font-weight: 600; line-height: 1.25; }
+.map-card-close {
+  border: 0; background: none; color: var(--muted);
+  font-size: 18px; line-height: 1; padding: 0 2px; cursor: pointer;
+  align-self: start;
+}
+.map-card-close:hover { color: var(--ink); }
+.map-card-close:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.map-card-meta { color: var(--muted); font-size: 13px; }
+.map-card-body { display: flex; gap: 10px; align-items: center; }
+.map-card-photo { width: 72px; height: 56px; object-fit: cover; flex: none; background: var(--line); }
+.map-card-facts { display: grid; gap: 1px; min-width: 0; }
+.map-card-price { font-family: Georgia, Palatino, serif; font-size: 21px; line-height: 1.1; }
+.map-card-score { display: flex; gap: 8px; align-items: center; }
+.map-score {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; flex: none;
+  color: white; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.map-score.band-workable { background: var(--good); }
+.map-score.band-look { background: var(--cedar); }
+.map-score.band-mixed { background: var(--warn); }
+.map-score.band-careful { background: var(--bad); }
+.map-score.band-rent { background: var(--info); }
+.map-card-verdict { color: var(--muted); font-size: 13px; }
+.map-card-note { color: var(--muted); font-size: 12px; }
+.map-card-actions { display: flex; gap: 8px; }
+.map-card-actions .primary { padding: 7px 12px; font-size: 14px; }
+
 @media (min-width: 861px) {
   .back { display: none; }
 }
