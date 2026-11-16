@@ -340,6 +340,26 @@ describe("extract a saved exposé document", () => {
     expect(result.listing).toMatchObject({ priceEur: 900, warmRentEur: null, depositEur: null });
   });
 
+  it("accepts a nested additional-cost label and retains a total before a later prose entry", () => {
+    const result = extractHtml(immoweltRentalPage({
+      base: { details: [{ label: { main: "Warmmiete" }, value: { main: { value: "1.250 €" } } }] },
+      additional: [{ label: { main: "Kaution" }, text: "2700" }, { label: "Warmmiete", text: "in Warmmiete enthalten" }],
+    }), "https://www.immowelt.de/expose/rental-house");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.listing).toMatchObject({ warmRentEur: 1250, depositEur: 2700 });
+  });
+
+  it("skips prose deposit nodes before a numeric deposit and preserves an explicit zero", () => {
+    for (const [value, expected] of [["2.400 €", 2400], ["0 €", 0]] as const) {
+      const result = extractHtml(`<html><head><script>keyValues = {"obj_immotype":"wohnung_miete","obj_baseRent":"800"};</script></head>
+        <body><dl><dt>Kaution</dt><dd>3 Kaltmieten</dd><dt>Kaution</dt><dd>${value}</dd></dl></body></html>`, "https://www.immobilienscout24.de/expose/999003");
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.listing).toMatchObject({ depositEur: expected });
+    }
+  });
+
   it.each(["3 Monatskaltmieten", "3 Kaltmieten", "3 Nettokaltmieten", "2.400 € (3 Kaltmieten)", "auf Anfrage", ""])("does not turn an unknown deposit (%s) into a euro amount", (deposit) => {
     const result = extractHtml(`<!doctype html><html><head><script>
       keyValues = {"obj_immotype":"wohnung_miete","obj_baseRent":"800"};

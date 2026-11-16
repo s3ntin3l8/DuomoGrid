@@ -240,9 +240,12 @@
       if (!own || own.length > 42) continue;
       const key = normKey(own);
       for (const [pattern, field] of labels) {
-        if (record[field] || !pattern.test(key)) continue;
+        if (record[field] != null || !pattern.test(key)) continue;
         const value = siblingValue(el);
-        if (value) record[field] = value;
+        if (field === "depositEur") {
+          const amount = depositAmount(value);
+          if (amount != null) record[field] = amount;
+        } else if (value) record[field] = value;
       }
     }
     return record;
@@ -348,7 +351,7 @@
       record.baseRent = price;
       const costs = sections.price || {};
       const entries = [costs.base?.main, ...(costs.base?.details || [])];
-      for (const item of costs.additional || []) entries.push({ label: { main: item.label }, value: { main: { value: item.text } } });
+      for (const item of costs.additional || []) entries.push({ label: { main: typeof item.label === "string" ? item.label : item.label?.main }, value: { main: { value: item.text } } });
       for (const component of costs.components || []) {
         for (const unit of component.units || []) {
           if (unit.main?.price) entries.push(unit.main.price);
@@ -359,7 +362,7 @@
         const label = normKey(entry?.label?.main ?? "");
         const value = entry?.value?.main?.value;
         if (label === "kaltmiete") record.baseRent = parseDeNumber(value) ?? record.baseRent;
-        if (label === "warmmiete" || label === "gesamtmiete") record.warmRentEur = parseDeNumber(value);
+        if (label === "warmmiete" || label === "gesamtmiete") record.warmRentEur = parseDeNumber(value) ?? record.warmRentEur;
         if (label === "kaution" && record.depositEur == null) record.depositEur = depositAmount(value);
       }
       // Some rentals state the total only in the description. Read a labelled euro
