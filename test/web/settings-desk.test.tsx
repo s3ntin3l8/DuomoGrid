@@ -310,6 +310,19 @@ describe("web settings screen", () => {
     expect(settingsKey({ ...INITIAL, interestPercent: 3.91 })).not.toBe(before);
   });
 
+  it("derives the form key, so a new assumption is never left out of it", () => {
+    // The key lists the values, not the provenance. A field that is added later is picked up
+    // without the list having to be written out again.
+    const withNewField = { ...INITIAL, aBrandNewAssumption: 42 } as unknown as Assumptions;
+    expect(settingsKey(withNewField)).not.toBe(settingsKey(INITIAL));
+    // A provenance field on its own changes nothing.
+    const withProvenance = {
+      ...INITIAL,
+      aBrandNewProvenance: { source: "user", asOf: null, note: null },
+    } as unknown as Assumptions;
+    expect(settingsKey(withProvenance)).toBe(settingsKey(INITIAL));
+  });
+
   it("says so when the market cannot be read", async () => {
     await act(async () => {
       root.render(

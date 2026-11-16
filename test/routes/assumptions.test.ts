@@ -247,6 +247,34 @@ describe("routes/assumptions", () => {
     await app.close();
   });
 
+  it("tries the market again after the retry window, not six hours later", async () => {
+    stubMarketFetch();
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    await app.inject({ method: "GET", url: "/assumptions", headers });
+
+    const failing = vi.fn(async () => new Response("boom", { status: 500 }));
+    vi.stubGlobal("fetch", failing);
+    const failed = await app.inject({ method: "POST", url: "/assumptions/refresh", headers });
+    expect(failed.json().market.note).toMatch(/last known values/);
+    const callsAfterFailure = failing.mock.calls.length;
+    expect(callsAfterFailure).toBeGreaterThan(0);
+
+    // Inside the window nothing is tried again.
+    await app.inject({ method: "GET", url: "/assumptions", headers });
+    expect(failing.mock.calls.length).toBe(callsAfterFailure);
+
+    // Past the window the market is tried again, even though the last good snapshot is younger
+    // than the freshness window. A failure must not push the next attempt out to six hours.
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 10 * 60 * 1000);
+    await app.inject({ method: "GET", url: "/assumptions", headers });
+    expect(failing.mock.calls.length).toBeGreaterThan(callsAfterFailure);
+    vi.restoreAllMocks();
+    await app.close();
+  });
+
   it("says the figures are the last known ones on every request after a failed read", async () => {
     stubMarketFetch();
     process.env.INGEST_TOKEN = "test-token";

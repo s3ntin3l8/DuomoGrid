@@ -48,8 +48,12 @@ export async function assumptionsRoute(app: FastifyInstance) {
    * the desk.
    */
   let cached: { snapshot: MarketSnapshot; at: number } | null = null;
-  /** When a failed read may be tried again. An explicit time, so a stale marker cannot linger. */
-  let failedUntil = 0;
+  /**
+   * A read that failed, and when it may be tried again. It is kept apart from the freshness
+   * clock, which belongs to the last good read: a failure must not push the next attempt out to
+   * the end of the good snapshot's life.
+   */
+  let failed: { snapshot: MarketSnapshot; until: number } | null = null;
 
   /**
    * A snapshot with nothing usable in it is not worth showing.
@@ -80,21 +84,23 @@ export async function assumptionsRoute(app: FastifyInstance) {
     const fresh = await readMarketSnapshot(genesisCredentials()).catch(() => null);
     if (fresh && !isEmpty(fresh)) {
       cached = { snapshot: fresh, at: Date.now() };
-      failedUntil = 0;
+      failed = null;
       writeSetting("market:snapshot", JSON.stringify(fresh));
       return fresh;
     }
     const fallback = knownSnapshot();
-    // The failed read is remembered too, so an offline host does not pay the timeout on every
-    // request. The retry window is short, because the market may come back at any moment.
+    // A failed read is remembered for a short while, so an offline host does not pay the timeout
+    // on every request. The market may come back at any moment, so the window is short.
     //
     // The snapshot carries the note, so every request in that window says the figures are the
     // last known ones. Without it a stale rate would read as a current one.
+    //
+    // The freshness clock is left alone: it belongs to the last **good** read. Moving it here
+    // would push the next attempt six hours out instead of five minutes.
     const stale: MarketSnapshot = fallback
       ? { ...fallback, note: "The market data could not be read. The last known values are still in use." }
       : { rates: null, energy: null, fetchedAt: new Date().toISOString(), note: "The market data could not be read." };
-    cached = { snapshot: stale, at: Date.now() };
-    failedUntil = Date.now() + FAILED_RETRY_MS;
+    failed = { snapshot: stale, until: Date.now() + FAILED_RETRY_MS };
     return stale;
   }
 
@@ -110,9 +116,10 @@ export async function assumptionsRoute(app: FastifyInstance) {
     const known = knownSnapshot();
     if (force) return readSnapshot();
     // A read that failed is remembered for a few minutes, so an offline host does not pay the
-    // timeout on every request.
-    if (now < failedUntil && known) return known;
-    const stale = !cached || now - cached.at >= SNAPSHOT_MAX_AGE_MS;
+    // timeout on every request. Past that window the market is tried again in the background.
+    if (failed && now < failed.until) return failed.snapshot;
+    const stale = failed != null || !cached || now - cached.at >= SNAPSHOT_MAX_AGE_MS;
+    if (failed) failed = null;
     if (!stale && known) return known;
     if (!known) return readSnapshot();
     // There is a snapshot to show, so the read happens in the background and the desk goes on.
