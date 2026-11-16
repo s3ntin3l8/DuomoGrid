@@ -255,7 +255,7 @@ const WRITE_TOOLS: AgentToolDef[] = [
   {
     name: "update_assumptions",
     description:
-      "Update global financing, tax, upkeep, or horizon assumptions (partial updates are merged with current assumptions).",
+      "Update financing, heating, tax, upkeep, or horizon assumptions. A partial update is merged with the current ones, including a heating rate named on its own.",
     inputSchema: {
       type: "object",
       properties: {
@@ -694,7 +694,14 @@ export async function executeAgentTool(
   }
 
   if (name === "update_assumptions") {
-    const merged = normalizeAssumptions({ ...ctx.model, ...args });
+    const rates = args.energyRates;
+    const input: Record<string, unknown> = { ...ctx.model, ...args };
+    // energyRates is one object, so spreading args replaces it whole. A caller that sets
+    // electricity must not wipe the gas rate they typed earlier.
+    if (rates && typeof rates === "object" && !Array.isArray(rates)) {
+      input.energyRates = { ...ctx.model.energyRates, ...rates };
+    }
+    const merged = normalizeAssumptions(input);
     // A value the caller set is the caller's own, so a market refresh never overwrites it. A value
     // that was following the market keeps following it only when the caller left it alone.
     const own: Provenance = { source: "user", asOf: null, note: null };
@@ -702,9 +709,8 @@ export async function executeAgentTool(
     if (args.notaryPercent !== undefined) merged.notaryProvenance = own;
     if (args.registerPercent !== undefined) merged.registerProvenance = own;
     if (args.fallbackCommissionPercent !== undefined) merged.commissionProvenance = own;
-    // The heating rates travel as one object, so a caller that sets any of them sets its own.
-    const rates = args.energyRates;
-    if (rates && typeof rates === "object") {
+    // Only the rates the caller named become theirs. The ones they left out keep their value and origin.
+    if (rates && typeof rates === "object" && !Array.isArray(rates)) {
       const body = rates as Record<string, unknown>;
       merged.energyRates = { ...merged.energyRates };
       for (const rate of ENERGY_RATES) {
