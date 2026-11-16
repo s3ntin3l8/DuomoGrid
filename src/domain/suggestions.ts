@@ -1,4 +1,4 @@
-import { fetchEnergyPrices, energyRatesFrom, type EnergyPrices, type GenesisCredentials } from "./energy-prices.js";
+import { fetchEnergyPrices, type EnergyPrices, type GenesisCredentials } from "./energy-prices.js";
 import { fetchMarketRates, suggestInterestRate, type MarketRates, type RateSuggestion } from "./market-rates.js";
 import { ENERGY_RATES, type Assumptions, type EnergyRate, type EnergyRateProvenanceKey, type Provenance } from "./types.js";
 
@@ -254,5 +254,4 @@ export async function readMarketSnapshot(
   return { rates, energy, fetchedAt: now.toISOString(), note };
 }
 
-export { energyRatesFrom };
 export type { EnergyPrices, MarketRates, RateSuggestion };

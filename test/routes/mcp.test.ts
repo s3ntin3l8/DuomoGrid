@@ -284,6 +284,7 @@ describe("routes/mcp", () => {
     });
     expect(updateAssumptionsCall.statusCode).toBe(200);
     expect(JSON.parse(updateAssumptionsCall.json().result.content[0].text as string).assumptions.interestPercent).toBe(3.4);
+    expect(JSON.parse(updateAssumptionsCall.json().result.content[0].text as string).assumptions.interestProvenance.source).toBe("user");
 
     const inquiryCall = await app.inject({
       method: "POST",
@@ -402,6 +403,23 @@ describe("routes/mcp", () => {
       },
     });
     expect(readAssumptions.statusCode).toBe(200);
+
+    const setRate = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 23,
+        method: "tools/call",
+        params: { name: "update_assumptions", arguments: { energyRates: { electric: 0.4 } } },
+      },
+    });
+    const set = JSON.parse(setRate.json().result.content[0].text as string).assumptions;
+    expect(set.energyRates.electric).toBe(0.4);
+    expect(set.energyRates.electricProvenance.source).toBe("user");
+    // A rate the caller did not set keeps the shipped origin.
+    expect(set.energyRates.gasProvenance.source).toBe("builtin");
 
     const batchMcp = await app.inject({
       method: "POST",

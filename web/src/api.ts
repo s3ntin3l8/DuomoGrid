@@ -5,7 +5,7 @@ export type Provenance = {
   note: string | null;
 };
 
-export type EnergyRate = "electric" | "gas" | "district" | "oil" | "biomass";
+export type EnergyRate = "electric" | "gas" | "district" | "oil" | "biomass" | "unknown";
 
 /** The heating rate per fuel, and where each one came from. */
 export type EnergyRateAssumptions = {
@@ -19,6 +19,8 @@ export type EnergyRateAssumptions = {
   oilProvenance: Provenance;
   biomass: number;
   biomassProvenance: Provenance;
+  unknown: number;
+  unknownProvenance: Provenance;
 };
 
 export type Assumptions = {

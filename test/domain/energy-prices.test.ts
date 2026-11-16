@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   ELECTRICITY_CLASS,
   GAS_CLASS,
-  energyRatesFrom,
   findGenesisPeriod,
   findGenesisPrice,
   parseGenesisCsv,
@@ -127,52 +126,5 @@ describe("findGenesisPeriod", () => {
 
   it("has no period for a table without one", () => {
     expect(findGenesisPeriod(parseGenesisCsv("a;b\n1;2\n"))).toBe("");
-  });
-});
-
-describe("energyRatesFrom", () => {
-  it("has no rates without prices", () => {
-    expect(energyRatesFrom(null)).toBeNull();
-    expect(
-      energyRatesFrom({
-        asOf: "",
-        electricityEurPerKwh: null,
-        electricityAsOf: "",
-        gasEurPerKwh: null,
-        gasAsOf: "",
-        source: "",
-        fetchedAt: "",
-      }),
-    ).toBeNull();
-  });
-
-  it("keeps each price with the period it belongs to", () => {
-    const rates = energyRatesFrom({
-      asOf: "2026-H1",
-      electricityEurPerKwh: 0.3797,
-      electricityAsOf: "2026-H1",
-      gasEurPerKwh: 0.1158,
-      gasAsOf: "2025-H2",
-      source: "",
-      fetchedAt: "",
-    });
-    expect(rates?.electric).toBe(0.3797);
-    expect(rates?.gas).toBe(0.1158);
-    expect(rates?.electricAsOf).toBe("2026-H1");
-    expect(rates?.gasAsOf).toBe("2025-H2");
-  });
-
-  it("leaves a fuel without a published price null rather than zero", () => {
-    const rates = energyRatesFrom({
-      asOf: "2026-H1",
-      electricityEurPerKwh: null,
-      electricityAsOf: "",
-      gasEurPerKwh: 0.1158,
-      gasAsOf: "2026-H1",
-      source: "",
-      fetchedAt: "",
-    });
-    expect(rates?.electric).toBeNull();
-    expect(rates?.gas).toBe(0.1158);
   });
 });

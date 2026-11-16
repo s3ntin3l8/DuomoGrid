@@ -22,7 +22,7 @@ import {
 import { maxOffer } from "../domain/max-offer.js";
 import { energySourceOf } from "../domain/ingest.js";
 import { fold } from "../domain/reference.js";
-import { STATES, type ListingInput, type Provenance } from "../domain/types.js";
+import { ENERGY_RATES, STATES, type ListingInput, type Provenance } from "../domain/types.js";
 import {
   asBodenrichtwert,
   asInput,
@@ -275,6 +275,19 @@ const WRITE_TOOLS: AgentToolDef[] = [
         equityReturnPercent: { type: "number" },
         appreciationPercent: { type: "number" },
         rentGrowthPercent: { type: "number" },
+        energyRates: {
+          type: "object",
+          description:
+            "Heating rates in euro per kWh, per fuel: electric, gas, district, oil, biomass, unknown. A rate set here becomes the caller's own and is never moved by a market refresh.",
+          properties: {
+            electric: { type: "number" },
+            gas: { type: "number" },
+            district: { type: "number" },
+            oil: { type: "number" },
+            biomass: { type: "number" },
+            unknown: { type: "number" },
+          },
+        },
       },
     },
   },
@@ -689,6 +702,16 @@ export async function executeAgentTool(
     if (args.notaryPercent !== undefined) merged.notaryProvenance = own;
     if (args.registerPercent !== undefined) merged.registerProvenance = own;
     if (args.fallbackCommissionPercent !== undefined) merged.commissionProvenance = own;
+    // The heating rates travel as one object, so a caller that sets any of them sets its own.
+    const rates = args.energyRates;
+    if (rates && typeof rates === "object") {
+      const body = rates as Record<string, unknown>;
+      merged.energyRates = { ...merged.energyRates };
+      for (const rate of ENERGY_RATES) {
+        if (body[rate] === undefined) continue;
+        merged.energyRates[`${rate}Provenance`] = own;
+      }
+    }
     const value = JSON.stringify(merged);
     const existing = db.select().from(settings).where(eq(settings.key, "assumptions")).all()[0];
     if (existing) {

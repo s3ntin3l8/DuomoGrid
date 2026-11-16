@@ -129,12 +129,15 @@ export const BUILTIN_PROVENANCE: Provenance = { source: "builtin", asOf: null, n
 /**
  * The heating rates the owner can set, one per fuel.
  *
- * The eight fuels the analysis knows collapse into five rates, because what matters is what
+ * The eight fuels the analysis knows collapse into six rates, because what matters is what
  * burns: a heat pump, an electric heater and night storage all burn electricity, and biogas is
  * sold as gas. District heat, oil and biomass have no national average price, so they get a rate
  * of their own and no market suggestion.
+ *
+ * The last rate is for a fuel that is not named at all: the price of the heat itself, rather than
+ * the price of a carrier, which is what the analysis falls back on.
  */
-export const ENERGY_RATES = ["electric", "gas", "district", "oil", "biomass"] as const;
+export const ENERGY_RATES = ["electric", "gas", "district", "oil", "biomass", "unknown"] as const;
 export type EnergyRate = (typeof ENERGY_RATES)[number];
 
 /** The heating rate per fuel, in euro per kWh, with where each one came from. */
@@ -149,6 +152,8 @@ export type EnergyRateAssumptions = {
   oilProvenance: Provenance;
   biomass: number;
   biomassProvenance: Provenance;
+  unknown: number;
+  unknownProvenance: Provenance;
 };
 
 /** The name of the field that holds a fuel's origin. */
@@ -172,6 +177,8 @@ export const DEFAULT_ENERGY_RATES: EnergyRateAssumptions = {
   oilProvenance: BUILTIN_PROVENANCE,
   biomass: 0.08,
   biomassProvenance: BUILTIN_PROVENANCE,
+  unknown: 0.12,
+  unknownProvenance: BUILTIN_PROVENANCE,
 };
 
 export type Assumptions = {

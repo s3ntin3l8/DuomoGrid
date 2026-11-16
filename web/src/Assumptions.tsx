@@ -14,13 +14,15 @@ const FIELD_LABELS: Record<MarketField, string> = {
   district: "District heat",
   oil: "Heating oil",
   biomass: "Wood and pellets",
+  unknown: "Fuel not named",
 };
 
 /**
  * The heating rates, and what each one is for.
  *
- * The five rates cover the eight fuels the analysis knows: a heat pump, an electric heater and
- * night storage all burn electricity, and biogas is sold as gas.
+ * The first five cover the eight fuels the analysis knows: a heat pump, an electric heater and
+ * night storage all burn electricity, and biogas is sold as gas. The last rate stands in for a
+ * home that names no fuel at all.
  */
 const ENERGY_FIELDS: { field: EnergyRate; label: string; detail: string }[] = [
   { field: "electric", label: "Electricity", detail: "A heat pump, an electric heater and night storage all burn electricity." },
@@ -28,6 +30,7 @@ const ENERGY_FIELDS: { field: EnergyRate; label: string; detail: string }[] = [
   { field: "district", label: "District heat", detail: "There is no national average. Local tariffs vary by more than double, so use your own." },
   { field: "oil", label: "Heating oil", detail: "Sold by the dealer. There is no published household price." },
   { field: "biomass", label: "Wood and pellets", detail: "Sold by the dealer. There is no published household price." },
+  { field: "unknown", label: "Fuel not named", detail: "The price of the heat itself, for a home whose heating the exposé does not name." },
 ];
 
 export function AssumptionsForm({
@@ -248,7 +251,8 @@ export function AssumptionsForm({
         <h3>Heating</h3>
         <p className="meta">
           What a kWh of heat costs you, per fuel. Electricity and gas have a published household
-          price; the other three are sold locally, so use your own figure for those.
+          price. District heat, oil and biomass are sold locally, and a home that names no fuel
+          uses its own rate.
         </p>
         <div className="fields">
           {ENERGY_FIELDS.map(({ field, label, detail }) => (

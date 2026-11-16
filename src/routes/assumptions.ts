@@ -12,7 +12,7 @@ const SNAPSHOT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const FAILED_RETRY_MS = 5 * 60 * 1000;
 
 /** Every field a refresh may move, in the order the desk shows them. */
-const MARKET_FIELDS: MarketField[] = ["interest", "notary", "register", "commission", "electric", "gas", "district", "oil", "biomass"];
+const MARKET_FIELDS: MarketField[] = ["interest", "notary", "register", "commission", "electric", "gas", "district", "oil", "biomass", "unknown"];
 
 export async function assumptionsRoute(app: FastifyInstance) {
   installIngestGuard(app, "/assumptions");

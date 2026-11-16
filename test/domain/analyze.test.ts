@@ -362,6 +362,9 @@ describe("analyze with the added exposé data", () => {
     expect(annual({ energySource: "Gas" })).toBe(2000);
     // A fuel whose rate was not touched keeps the shipped one.
     expect(annual({ energySource: "Öl" })).toBe(1000);
+    // A home that names no fuel uses the owner's rate for that case, not a hardcoded one.
+    const unnamed = normalizeAssumptions({ energyRates: { unknown: 0.2 } });
+    expect(annual({ heating: "Zentralheizung" }, unnamed)).toBe(2000);
   });
 
   it("applies one heating adjustment to the energy subscore, never a stack", () => {

@@ -133,6 +133,8 @@ const INITIAL: Assumptions = {
     oilProvenance: { source: "builtin", asOf: null, note: null },
     biomass: 0.08,
     biomassProvenance: { source: "builtin", asOf: null, note: null },
+    unknown: 0.12,
+    unknownProvenance: { source: "builtin", asOf: null, note: null },
   },
   horizonYears: 10,
   equityReturnPercent: 3,
@@ -313,7 +315,7 @@ describe("web settings screen", () => {
     });
 
     // Every fuel has a rate.
-    for (const fuel of ["Electricity", "Gas", "District heat", "Heating oil", "Wood and pellets"]) {
+    for (const fuel of ["Electricity", "Gas", "District heat", "Heating oil", "Wood and pellets", "Fuel not named"]) {
       expect(host.textContent).toContain(fuel);
     }
     // The two with a published price offer it.

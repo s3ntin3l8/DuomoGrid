@@ -387,8 +387,19 @@ describe("routes/assumptions", () => {
   it("keeps a heating rate the owner pinned when the market is read again", async () => {
     stubMarketFetch();
     process.env.INGEST_TOKEN = "test-token";
+    // The energy prices need a GENESIS account; without one they are never read, and the refresh
+    // would have nothing to move the rate with.
+    const previous = process.env.DESTATIS_API_TOKEN;
+    process.env.DESTATIS_API_TOKEN = "test-token";
     const app = await buildApp();
+    if (previous === undefined) delete process.env.DESTATIS_API_TOKEN;
+    else process.env.DESTATIS_API_TOKEN = previous;
     const headers = { authorization: "Bearer test-token" };
+    // The rate follows the market.
+    await app.inject({ method: "PUT", url: "/assumptions", headers, payload: { accept: ["electric"] } });
+    const accepted = await app.inject({ method: "GET", url: "/assumptions", headers });
+    expect(accepted.json().assumptions.energyRates.electricProvenance.source).toBe("market");
+    // The owner takes it back into their own hands.
     await app.inject({
       method: "PUT",
       url: "/assumptions",
