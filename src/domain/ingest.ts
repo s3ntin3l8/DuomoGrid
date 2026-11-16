@@ -279,8 +279,8 @@ function rentContract(value: unknown): ListingInput["rentContract"] {
   if (!text) return null;
   if (text.includes("staffel") || text.includes("step")) return "stepped";
   if (text.includes("index")) return "indexed";
-  if (text.includes("befrist") || text.includes("fixed")) return "fixed";
   if (text.includes("unbefrist") || text.includes("open")) return "open";
+  if (text.includes("befrist") || text.includes("fixed")) return "fixed";
   return null;
 }
 

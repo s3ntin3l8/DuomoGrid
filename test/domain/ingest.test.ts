@@ -3,6 +3,21 @@ import fs from "node:fs";
 import { energySourceOf, parseIngest } from "../../src/domain/ingest.js";
 import { IMAGE_HOSTS, IMAGE_QUOTA } from "../../src/domain/types.js";
 
+describe("parseIngest rental contracts", () => {
+  it.each([
+    ["unbefristet", "open"],
+    ["befristet", "fixed"],
+    ["Staffelmiete", "stepped"],
+    ["Indexmiete", "indexed"],
+    [null, null],
+  ])("normalizes %s to %s", (rentContract, expected) => {
+    const parsed = parseIngest({ listingKind: "rent", rentContract });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing.rentContract).toBe(expected);
+  });
+});
+
 describe("parseIngest location", () => {
   it("keeps an in-range point and marks it exact", () => {
     const parsed = parseIngest({

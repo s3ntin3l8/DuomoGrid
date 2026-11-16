@@ -213,6 +213,8 @@
     const labels = [
       [/kaufpreis/, "priceEur"],
       [/kaltmiete/, "coldRentEur"],
+      [/^(warmmiete|gesamtmiete)$/, "warmRentEur"],
+      [/^kaution/, "depositEur"],
       [/wohnflaeche|wohnflache/, "livingAreaM2"],
       [/grundstuecksflaeche|grundstucksflache|grundstuck/, "plotAreaM2"],
       [/^zimmer$/, "rooms"],
@@ -342,7 +344,31 @@
     };
     const price = amount(track.price) ?? amount(at(sections, ["mortgage", "price"]));
     if (sale) record.purchasePrice = price;
-    else record.baseRent = price;
+    else {
+      record.baseRent = price;
+      const costs = sections.price || {};
+      const entries = [costs.base?.main, ...(costs.base?.details || [])];
+      for (const item of costs.additional || []) entries.push({ label: { main: item.label }, value: { main: { value: item.text } } });
+      for (const component of costs.components || []) {
+        for (const unit of component.units || []) {
+          if (unit.main?.price) entries.push(unit.main.price);
+          for (const detail of unit.details || []) entries.push(...(detail.prices || []));
+        }
+      }
+      for (const entry of entries) {
+        const label = normKey(entry?.label?.main ?? "");
+        const value = entry?.value?.main?.value;
+        if (label === "kaltmiete") record.baseRent = parseDeNumber(value) ?? record.baseRent;
+        if (label === "warmmiete" || label === "gesamtmiete") record.warmRentEur = parseDeNumber(value);
+        if (label === "kaution" && record.depositEur == null) record.depositEur = depositAmount(value);
+      }
+      // Some rentals state the total only in the description. Read a labelled euro
+      // amount, never infer it by adding costs (heating or parking may be extra).
+      const description = at(sections, ["mainDescription", "description"]) ?? at(sections, ["description", "description"]);
+      const total = /(?:^|\n)\s*(?:Warmmiete|Gesamtmiete)\s*:\s*(\d[\d.,\u00a0 ]*)\s*(?:€|EUR\b)/i;
+      const match = total.exec(String(description ?? ""));
+      if (record.warmRentEur == null && match) record.warmRentEur = parseDeNumber(match[1]);
+    }
     record.livingSpace = amount(cfg.Wohnflaeche);
     record.noRooms = amount(cfg.Raeume);
     record.immotype = at(c, ["rawData", "propertyType"]);
@@ -708,6 +734,12 @@
     return n != null && n > 0 ? n : null;
   }
 
+  function depositAmount(value) {
+    // Do not read a multiple ("3 Kaltmieten") or mixed prose as a euro amount.
+    if (value == null || !/^\d[\d.,\s]*(?:€|EUR)?$/i.test(String(value).trim())) return null;
+    return parseDeNumber(value);
+  }
+
   function buildListing(records, page) {
     const detected = detect(page.href);
     if (!detected) {
@@ -859,6 +891,9 @@
         heating: heatingLabel(firing, heatingType, heatingFree),
         hausgeldEur: hausgeld,
         coldRentEur: listingKind === "rent" ? coldRent ?? price : coldRent,
+        warmRentEur: listingKind === "rent" ? parseDeNumber(pick(records, ["objtotalrent", "totalrent", "warmrenteur", "warmmiete", "gesamtmiete"])) : null,
+        // A deposit stated in months is not an amount in euros.
+        depositEur: listingKind === "rent" ? depositAmount(pick(records, ["depositeur", "deposit", "kaution"])) : null,
         provisionPercent: provision.percent,
         provisionText: provision.text,
         condition: conditionLabel(pick(records, ["objcondition", "condition", "objektzustand"])),
