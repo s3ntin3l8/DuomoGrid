@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { JSDOM } from "jsdom";
+import { parseIngest } from "../../src/domain/ingest.js";
+import { analyze } from "../../src/domain/analyze.js";
+import { DEFAULT_ASSUMPTIONS } from "../../src/domain/types.js";
 
 type Extracted = {
   ok: true;
@@ -42,6 +45,16 @@ function is24Page(location: string) {
     IS24.expose = {"exposeMap":{"location":${location}}};
     keyValues = {"obj_purchasePrice":"100000","obj_scoutId":"5"};
   </script></head><body><h1>x</h1></body></html>`;
+}
+
+function immoweltRentalPage(price: Record<string, unknown>, description = "") {
+  const classified = {
+    rawData: { distributionType: "RENT", propertyType: "HOUSE" },
+    tracking: { av_items: [{ price: 900 }] },
+    sections: { price, mainDescription: { description } },
+  };
+  const payload = JSON.stringify(JSON.stringify({ app_demand_referral_cldp: { data: { classified } } }));
+  return `<html><head><script>window["__UFRN_LIFECYCLE_SERVERREQUEST__"]=JSON.parse(${payload});</script></head><body></body></html>`;
 }
 
 describe("extract a saved exposé document", () => {
@@ -278,5 +291,90 @@ describe("extract a saved exposé document", () => {
       ok: false,
       reason: "Open a single listing on ImmoScout24 or Immowelt, not a results page.",
     });
+  });
+
+  it.each([
+    ["synthetic-is24-rent.html", "https://www.immobilienscout24.de/expose/999003", "immobilienscout24", "apartment", 800, 1050, 2400, 60],
+    ["synthetic-immowelt-rent.html", "https://www.immowelt.de/expose/rental-house", "immowelt", "house", 900, 1200, 2700, 80],
+  ] as const)("keeps rental costs separate through ingest and analysis: %s", (file, href, source, propertyType, cold, warm, deposit, area) => {
+    const result = extract(`./fixtures/${file}`, href);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.listing).toMatchObject({ source, propertyType, listingKind: "rent", priceEur: cold, coldRentEur: cold, warmRentEur: warm, depositEur: deposit, hausgeldEur: null });
+    const parsed = parseIngest(result.listing);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.listing).toMatchObject({ offer: "rent", priceEur: cold, coldRentEur: cold, warmRentEur: warm, depositEur: deposit, rentContract: null });
+    const analysis = analyze(parsed.listing, DEFAULT_ASSUMPTIONS);
+    expect(analysis).toMatchObject({ score: null, verdict: "rent", monthlyDebt: null });
+    expect(analysis.rentPerM2).toBeCloseTo(cold / area);
+  });
+
+  it("does not infer a warm rent from Immowelt service charges or heating-included text", () => {
+    const html = fs.readFileSync(new URL("./fixtures/synthetic-immowelt-rent.html", import.meta.url), "utf8")
+      .replace("Gesamtmiete:", "Andere Kosten:");
+    const result = extractHtml(html, "https://www.immowelt.de/expose/rental-house");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.listing).toMatchObject({ priceEur: 900, warmRentEur: null, depositEur: 2700 });
+  });
+
+  it("prefers labelled Immowelt costs to tracking and description, and reads a component-only deposit", () => {
+    const html = immoweltRentalPage({
+      base: {
+        main: { label: { main: "Kaltmiete" }, value: { main: { value: "950 €" } } },
+        details: [{ label: { main: "Warmmiete" }, value: { main: { value: "1.250 €" } } }],
+      },
+      components: [{ units: [{ details: [{ prices: [{ label: { main: "Kaution" }, value: { main: { value: "2.850 €" } } }] }] }] }],
+    }, "Gesamtmiete: 1.200 € / Monat");
+    const result = extractHtml(html, "https://www.immowelt.de/expose/rental-house");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.listing).toMatchObject({ priceEur: 950, coldRentEur: 950, warmRentEur: 1250, depositEur: 2850 });
+  });
+
+  it("keeps an Immowelt deposit stated in rent multiples unknown", () => {
+    const result = extractHtml(immoweltRentalPage({ additional: [{ label: "Kaution", text: "3 Kaltmieten" }] }), "https://www.immowelt.de/expose/rental-house");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.listing).toMatchObject({ priceEur: 900, warmRentEur: null, depositEur: null });
+  });
+
+  it("accepts a nested additional-cost label and retains a total before a later prose entry", () => {
+    const result = extractHtml(immoweltRentalPage({
+      base: { details: [{ label: { main: "Warmmiete" }, value: { main: { value: "1.250 €" } } }] },
+      additional: [{ label: { main: "Kaution" }, text: "2700" }, { label: "Warmmiete", text: "in Warmmiete enthalten" }],
+    }), "https://www.immowelt.de/expose/rental-house");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.listing).toMatchObject({ warmRentEur: 1250, depositEur: 2700 });
+  });
+
+  it("skips prose deposit nodes before a numeric deposit and preserves an explicit zero", () => {
+    for (const [value, expected] of [["2.400 €", 2400], ["0 €", 0]] as const) {
+      const result = extractHtml(`<html><head><script>keyValues = {"obj_immotype":"wohnung_miete","obj_baseRent":"800"};</script></head>
+        <body><dl><dt>Kaution</dt><dd>3 Kaltmieten</dd><dt>Kaution</dt><dd>${value}</dd></dl></body></html>`, "https://www.immobilienscout24.de/expose/999003");
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.listing).toMatchObject({ depositEur: expected });
+    }
+  });
+
+  it.each(["3 Monatskaltmieten", "3 Kaltmieten", "3 Nettokaltmieten", "2.400 € (3 Kaltmieten)", "auf Anfrage", ""])("does not turn an unknown deposit (%s) into a euro amount", (deposit) => {
+    const result = extractHtml(`<!doctype html><html><head><script>
+      keyValues = {"obj_immotype":"wohnung_miete","obj_baseRent":"800"};
+      </script></head><body><dl><dt>Kaution</dt><dd>${deposit}</dd></dl></body></html>`, "https://www.immobilienscout24.de/expose/999003");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.listing).toMatchObject({ depositEur: null, warmRentEur: null });
+  });
+
+  it("reads total rent from a labelled DOM pair when tracking omits it", () => {
+    const result = extractHtml(`<!doctype html><html><head><script>
+      keyValues = {"obj_immotype":"wohnung_miete","obj_baseRent":"800"};
+      </script></head><body><dl><dt>Gesamtmiete</dt><dd>1.050 €</dd></dl></body></html>`, "https://www.immobilienscout24.de/expose/999003");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.listing).toMatchObject({ priceEur: 800, warmRentEur: 1050 });
   });
 });
