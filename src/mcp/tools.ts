@@ -697,9 +697,12 @@ export async function executeAgentTool(
     const rates = args.energyRates;
     const input: Record<string, unknown> = { ...ctx.model, ...args };
     // energyRates is one object, so spreading args replaces it whole. A caller that sets
-    // electricity must not wipe the gas rate they typed earlier.
+    // electricity must not wipe the gas rate they typed earlier. A value that is not an object
+    // is ignored the same way: it must not reset the six rates to the shipped defaults.
     if (rates && typeof rates === "object" && !Array.isArray(rates)) {
       input.energyRates = { ...ctx.model.energyRates, ...rates };
+    } else if ("energyRates" in args) {
+      input.energyRates = { ...ctx.model.energyRates };
     }
     const merged = normalizeAssumptions(input);
     // A value the caller set is the caller's own, so a market refresh never overwrites it. A value

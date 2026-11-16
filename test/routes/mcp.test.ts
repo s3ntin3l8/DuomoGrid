@@ -439,6 +439,22 @@ describe("routes/mcp", () => {
     expect(set.energyRates.district).toBe(0.3);
     expect(set.energyRates.districtProvenance.source).toBe("user");
 
+    const ignored = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: 25,
+        method: "tools/call",
+        params: { name: "update_assumptions", arguments: { energyRates: ["gas"] } },
+      },
+    });
+    const kept = JSON.parse(ignored.json().result.content[0].text as string).assumptions;
+    expect(kept.energyRates.gas).toBe(0.2);
+    expect(kept.energyRates.electric).toBe(0.4);
+    expect(kept.energyRates.electricProvenance.source).toBe("user");
+
     const batchMcp = await app.inject({
       method: "POST",
       url: "/mcp",
