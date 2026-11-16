@@ -43,24 +43,27 @@ export type Suggestions = {
  * The notary and land register fees are set by the Gerichts- und Notarkostengesetz, the same in
  * every federal state, and the buyer's share of the commission is capped by law. They are not
  * market figures and there is nothing to refresh, so they carry a rule as their source.
+ *
+ * There is no publication date for a rule, so `asOf` stays empty: a year written here would read
+ * as "this figure is as of that year", which a statute cannot be.
  */
 const NOTARY_SUGGESTION = {
   value: 1.5,
-  asOf: "2026",
+  asOf: "",
   source: "Gerichts- und Notarkostengesetz (GNotKG)",
   detail: "Notary and land register together are about 1.5 percent of the price. The fees are the same in every state.",
 };
 
 const REGISTER_SUGGESTION = {
   value: 0.5,
-  asOf: "2026",
+  asOf: "",
   source: "Gerichts- und Notarkostengesetz (GNotKG)",
   detail: "The land register costs about 0.5 percent of the price.",
 };
 
 const COMMISSION_SUGGESTION = {
   value: 3.57,
-  asOf: "2026",
+  asOf: "",
   source: "§ 656c BGB",
   detail: "Since 2020 the buyer pays at most half the commission, which is 3.57 percent including VAT.",
 };

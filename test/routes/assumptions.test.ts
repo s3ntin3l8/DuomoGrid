@@ -247,6 +247,26 @@ describe("routes/assumptions", () => {
     await app.close();
   });
 
+  it("says the figures are the last known ones on every request after a failed read", async () => {
+    stubMarketFetch();
+    process.env.INGEST_TOKEN = "test-token";
+    const app = await buildApp();
+    const headers = { authorization: "Bearer test-token" };
+    await app.inject({ method: "GET", url: "/assumptions", headers });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("boom", { status: 500 })),
+    );
+    const first = await app.inject({ method: "POST", url: "/assumptions/refresh", headers });
+    expect(first.json().market.note).toMatch(/last known values/);
+    // The next request serves the cached snapshot, and it still says the figures are stale.
+    const second = await app.inject({ method: "GET", url: "/assumptions", headers });
+    expect(second.json().market.note).toMatch(/last known values/);
+    expect(second.json().market.rates.secured10yPercent).toBe(3.91);
+    await app.close();
+  });
+
   it("marks a value the owner pinned as theirs even when a figure was accepted first", async () => {
     stubMarketFetch();
     process.env.INGEST_TOKEN = "test-token";

@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AssumptionsForm } from "../../web/src/Assumptions";
+import { settingsKey } from "../../web/src/App";
 import {
   loadAssumptions,
   refreshMarketRates,
@@ -297,6 +298,16 @@ describe("web settings screen", () => {
     expect(onRefresh).toHaveBeenCalledOnce();
     expect(host.textContent).not.toContain("Will be used on save.");
     expect(host.textContent).toContain("The market data was read again.");
+  });
+
+  it("keeps the form mounted when a refresh moves no value", async () => {
+    // The desk mounts the form under a key built from the values. A refresh that moves nothing
+    // must leave the key alone, or the owner loses the draft and the notice.
+    const before = settingsKey(INITIAL);
+    const after = settingsKey({ ...INITIAL, interestProvenance: { source: "market", asOf: "2026-09", note: "Bundesbank" } });
+    expect(after).toBe(before);
+    // A refresh that does move a value changes the key, so the form remounts with the new figure.
+    expect(settingsKey({ ...INITIAL, interestPercent: 3.91 })).not.toBe(before);
   });
 
   it("says so when the market cannot be read", async () => {

@@ -33,6 +33,37 @@ import { eur, historyText, historyTone, perM2Text, statusLabel } from "./format"
 
 const ListingMap = lazy(() => import("./Map").then((mod) => ({ default: mod.ListingMap })));
 
+/**
+ * The key the settings form is mounted under.
+ *
+ * Only the values count, not the provenance: a market refresh that moves no value must not
+ * remount the form, or the owner loses the draft and the notice they just earned. A refresh that
+ * does move a value remounts, which is right: the form then shows the new figure.
+ */
+export function settingsKey(assumptions: Assumptions): string {
+  return JSON.stringify([
+    assumptions.equityMode,
+    assumptions.equityPercent,
+    assumptions.equityEur,
+    assumptions.interestPercent,
+    assumptions.termYears,
+    assumptions.fixedYears,
+    assumptions.notaryPercent,
+    assumptions.registerPercent,
+    assumptions.fallbackCommissionPercent,
+    assumptions.maintenanceEurPerM2Year,
+    assumptions.propertyTaxEurYear,
+    assumptions.insuranceEurPerM2Year,
+    assumptions.horizonYears,
+    assumptions.equityReturnPercent,
+    assumptions.appreciationPercent,
+    assumptions.rentGrowthPercent,
+    assumptions.monthlyBudgetEur,
+    assumptions.targetEurPerM2,
+    assumptions.defaultState,
+  ]);
+}
+
 function PriceMove({ row }: { row: DeskListing }) {
   const buy = row.listing.offer === "buy";
   const figure = perM2Text(buy, buy ? row.analysis.pricePerLivingM2 : row.analysis.rentPerM2);
@@ -323,7 +354,10 @@ export function App() {
         {error ? <p className="error">{error}</p> : null}
         {mode === "assumptions" && assumptions && market && suggestions ? (
           <AssumptionsForm
-            key={JSON.stringify(assumptions)}
+            // Keyed on the values, not on the whole row: a market refresh that moves no value
+            // must not remount the form, or the owner loses the draft and the notice they just
+            // earned.
+            key={settingsKey(assumptions)}
             initial={assumptions}
             states={states}
             market={market}

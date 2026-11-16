@@ -48,6 +48,8 @@ export async function assumptionsRoute(app: FastifyInstance) {
    * the desk.
    */
   let cached: { snapshot: MarketSnapshot; at: number } | null = null;
+  /** When a failed read may be tried again. An explicit time, so a stale marker cannot linger. */
+  let failedUntil = 0;
 
   /**
    * A snapshot with nothing usable in it is not worth showing.
@@ -78,20 +80,22 @@ export async function assumptionsRoute(app: FastifyInstance) {
     const fresh = await readMarketSnapshot(genesisCredentials()).catch(() => null);
     if (fresh && !isEmpty(fresh)) {
       cached = { snapshot: fresh, at: Date.now() };
+      failedUntil = 0;
       writeSetting("market:snapshot", JSON.stringify(fresh));
       return fresh;
     }
     const fallback = knownSnapshot();
-    // The failed read is cached too, so an offline host does not pay the timeout on every
+    // The failed read is remembered too, so an offline host does not pay the timeout on every
     // request. The retry window is short, because the market may come back at any moment.
-    cached = { snapshot: fallback ?? { rates: null, energy: null, fetchedAt: new Date().toISOString(), note: null }, at: Date.now() - (SNAPSHOT_MAX_AGE_MS - FAILED_RETRY_MS) };
-    if (fallback) {
-      return {
-        ...fallback,
-        note: "The market data could not be read. The last known values are still in use.",
-      };
-    }
-    return { rates: null, energy: null, fetchedAt: new Date().toISOString(), note: "The market data could not be read." };
+    //
+    // The snapshot carries the note, so every request in that window says the figures are the
+    // last known ones. Without it a stale rate would read as a current one.
+    const stale: MarketSnapshot = fallback
+      ? { ...fallback, note: "The market data could not be read. The last known values are still in use." }
+      : { rates: null, energy: null, fetchedAt: new Date().toISOString(), note: "The market data could not be read." };
+    cached = { snapshot: stale, at: Date.now() };
+    failedUntil = Date.now() + FAILED_RETRY_MS;
+    return stale;
   }
 
   /**
@@ -103,9 +107,12 @@ export async function assumptionsRoute(app: FastifyInstance) {
    */
   async function snapshot(force: boolean): Promise<MarketSnapshot> {
     const now = Date.now();
-    const stale = !cached || now - cached.at >= SNAPSHOT_MAX_AGE_MS;
     const known = knownSnapshot();
     if (force) return readSnapshot();
+    // A read that failed is remembered for a few minutes, so an offline host does not pay the
+    // timeout on every request.
+    if (now < failedUntil && known) return known;
+    const stale = !cached || now - cached.at >= SNAPSHOT_MAX_AGE_MS;
     if (!stale && known) return known;
     if (!known) return readSnapshot();
     // There is a snapshot to show, so the read happens in the background and the desk goes on.
