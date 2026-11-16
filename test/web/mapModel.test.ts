@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scoreBand } from "../../web/src/format.js";
-import { clustersOf, FAN_CAP, pinLook, SPREAD_CLUSTER_RADIUS, spreadOffsets, type PinPoint } from "../../web/src/mapModel.js";
+import { CLUSTER_RADIUS, clustersOf, FAN_CAP, pinLook, spreadOffsets, type PinPoint } from "../../web/src/mapModel.js";
 import type { DeskListing } from "../../web/src/api.js";
 
 function listing(overrides: {
@@ -93,14 +93,25 @@ describe("the spread", () => {
     }
   });
 
-  it("keeps a large group inside the cap, on two rings, so it cannot reach the next cluster", () => {
+  it("does not shrink a second ring until its scores cover each other", () => {
     const offsets = spreadOffsets(12);
     expect(offsets).toHaveLength(12);
-    const radii = new Set(offsets.map((offset) => Math.hypot(offset.dx, offset.dy).toFixed(1)));
-    expect(radii.size).toBeGreaterThan(1);
     for (const offset of offsets) {
       expect(Math.hypot(offset.dx, offset.dy)).toBeLessThanOrEqual(FAN_CAP + 0.01);
     }
-    expect(SPREAD_CLUSTER_RADIUS).toBeGreaterThan(FAN_CAP * 2);
+    const placed = offsets.filter((offset) => Math.hypot(offset.dx, offset.dy) > 1);
+    for (let left = 0; left < placed.length; left += 1) {
+      for (let right = left + 1; right < placed.length; right += 1) {
+        const a = placed[left];
+        const b = placed[right];
+        if (!a || !b) continue;
+        expect(Math.hypot(a.dx - b.dx, a.dy - b.dy)).toBeGreaterThanOrEqual(35.9);
+      }
+    }
+  });
+
+  it("groups only pins that already overlap, which is what the desk uses", () => {
+    const groups = clustersOf([point("a", 0, 0), point("b", 60, 0)], CLUSTER_RADIUS);
+    expect(groups).toHaveLength(2);
   });
 });

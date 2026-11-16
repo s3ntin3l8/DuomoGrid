@@ -27,14 +27,11 @@ export function pinLook(row: DeskListing): PinLook {
 /** A point on the screen, with the listing it belongs to. */
 export type PinPoint = { id: string; x: number; y: number };
 
-/** How far apart two pins have to sit before they count as separate, before any spread. */
+/** How far apart two pins have to sit before they count as separate. A pin is 30 px. */
 export const CLUSTER_RADIUS = 34;
 
 /** A spread pin stays within this of its building. Further than this is a neighbouring street. */
 export const FAN_CAP = 52;
-
-/** Clusters are grouped at least this far apart, so one fan cannot reach the next. */
-export const SPREAD_CLUSTER_RADIUS = FAN_CAP * 2 + 8;
 
 /**
  * The pins that sit on top of each other. Each group gets its own pin drawn apart from
@@ -82,19 +79,27 @@ function pinsOnRing(radius: number): number {
   return Math.max(1, Math.floor(Math.PI / Math.asin(sine)));
 }
 
+function radiusFor(count: number): number {
+  if (count <= 1) return 0;
+  return PIN_CLEARANCE / 2 / Math.sin(Math.PI / count);
+}
+
 /**
- * Where a pin in a group is drawn, relative to the group's centre. One ring while that
- * stays inside the cap; a second ring after that. Nothing is drawn further than the cap,
- * so a large group stays on its building instead of reaching the next street.
+ * Where a pin in a group is drawn, relative to that pin. One ring while it fits inside
+ * the cap. A second ring only takes as many pins as fit at the radius that count needs,
+ * so the ring is never shrunk until the scores cover each other. Pins that still do not
+ * fit stay on the building.
  */
 export function spreadOffsets(count: number): { dx: number; dy: number }[] {
   if (count < 2) return [];
-  const single = PIN_CLEARANCE / 2 / Math.sin(Math.PI / count);
+  const single = radiusFor(count);
   if (single <= FAN_CAP) return ring(count, single);
-  const outerCount = Math.min(count - 1, pinsOnRing(FAN_CAP));
-  const innerCount = count - outerCount;
+  const outerCount = Math.min(count, pinsOnRing(FAN_CAP));
   const outer = ring(outerCount, FAN_CAP);
-  if (innerCount === 1) return [...outer, { dx: 0, dy: 0 }];
-  const innerRadius = Math.min(FAN_CAP - PIN_CLEARANCE, PIN_CLEARANCE / 2 / Math.sin(Math.PI / innerCount));
-  return [...outer, ...ring(innerCount, Math.max(innerRadius, 1), Math.PI / innerCount)];
+  const innerRoom = FAN_CAP - PIN_CLEARANCE;
+  const innerCount = Math.min(count - outerCount, pinsOnRing(innerRoom));
+  const inner = innerCount <= 0 ? [] : innerCount === 1 ? [{ dx: 0, dy: 0 }] : ring(innerCount, radiusFor(innerCount), Math.PI / innerCount);
+  const placed = [...outer, ...inner];
+  while (placed.length < count) placed.push({ dx: 0, dy: 0 });
+  return placed;
 }

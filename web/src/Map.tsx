@@ -4,7 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DeskListing } from "./api";
 import { eur, num, perM2Text } from "./format";
-import { clustersOf, pinLook, SPREAD_CLUSTER_RADIUS, spreadOffsets } from "./mapModel";
+import { clustersOf, pinLook, spreadOffsets } from "./mapModel";
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -198,7 +198,7 @@ export function ListingMap({
     });
     const entries = live.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     if (entries.length === 0) return;
-    for (const cluster of clustersOf(entries, SPREAD_CLUSTER_RADIUS)) {
+    for (const cluster of clustersOf(entries)) {
       // A pin on its own goes back to its point. A zoom that pulls a group apart
       // must not leave the old spread in place.
       const offsets = cluster.length < 2 ? [{ dx: 0, dy: 0 }] : spreadOffsets(cluster.length);
@@ -394,7 +394,11 @@ export function ListingMap({
             event.stopPropagation();
             savePoint();
           });
-          element.addEventListener("blur", savePoint);
+          element.addEventListener("blur", () => {
+            // The overlay takes focus when it opens, so the pin never sees the keyup.
+            fromKey = false;
+            savePoint();
+          });
           marker.on("dragend", () => {
             const at = marker?.getLngLat();
             if (!at) return;
