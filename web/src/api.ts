@@ -1,13 +1,24 @@
+/** Where a number came from. `user` means the owner typed it, `market` that they accepted a published figure. */
+export type Provenance = {
+  source: "user" | "market" | "builtin";
+  asOf: string | null;
+  note: string | null;
+};
+
 export type Assumptions = {
   equityMode: "percent" | "eur";
   equityPercent: number;
   equityEur: number;
   interestPercent: number;
+  interestProvenance: Provenance;
   termYears: number;
   fixedYears: number;
   notaryPercent: number;
+  notaryProvenance: Provenance;
   registerPercent: number;
+  registerProvenance: Provenance;
   fallbackCommissionPercent: number;
+  commissionProvenance: Provenance;
   horizonYears: number;
   equityReturnPercent: number;
   appreciationPercent: number;
@@ -18,6 +29,69 @@ export type Assumptions = {
   monthlyBudgetEur: number | null;
   targetEurPerM2: number | null;
   defaultState: string | null;
+};
+
+/** What the desk can offer for a value, and why. */
+export type Suggestion = {
+  value: number;
+  asOf: string;
+  source: string;
+  lowPercent: number | null;
+  highPercent: number | null;
+  preliminary: boolean;
+  detail: string;
+};
+
+export type Suggestions = {
+  interest: Suggestion | null;
+  notary: Suggestion | null;
+  register: Suggestion | null;
+  commission: Suggestion | null;
+};
+
+export type MarketRateHistoryPoint = { period: string; percent: number };
+
+export type MarketRates = {
+  asOf: string;
+  secured10yPercent: number | null;
+  unsecured10yPercent: number | null;
+  allNewPercent: number | null;
+  floatingPercent: number | null;
+  secured10yLowPercent: number | null;
+  secured10yHighPercent: number | null;
+  /** How many months the range covers. */
+  secured10yRangeMonths: number;
+  history: MarketRateHistoryPoint[];
+  spreadPercent: number | null;
+  source: string;
+  preliminary: boolean;
+  fetchedAt: string;
+};
+
+export type EnergyPrices = {
+  asOf: string;
+  electricityEurPerKwh: number | null;
+  /** The period the electricity price belongs to. The two tables cover different spans. */
+  electricityAsOf: string;
+  gasEurPerKwh: number | null;
+  /** The period the gas price belongs to. */
+  gasAsOf: string;
+  source: string;
+  fetchedAt: string;
+};
+
+export type MarketSnapshot = {
+  rates: MarketRates | null;
+  energy: EnergyPrices | null;
+  fetchedAt: string;
+  note: string | null;
+};
+
+export type AssumptionsResponse = {
+  assumptions: Assumptions;
+  states: StateOption[];
+  market: MarketSnapshot;
+  suggestions: Suggestions;
 };
 
 export type StateOption = { id: string; name: string; tax: number };
@@ -281,14 +355,22 @@ export function removeListing(token: string, id: string) {
 }
 
 export function loadAssumptions(token: string) {
-  return request<{ assumptions: Assumptions; states: StateOption[] }>(token, "/assumptions");
+  return request<AssumptionsResponse>(token, "/assumptions");
 }
 
-export function saveAssumptions(token: string, assumptions: Assumptions) {
-  return request<{ assumptions: Assumptions; states: StateOption[] }>(token, "/assumptions", {
+export function saveAssumptions(token: string, assumptions: Assumptions, options?: { accept?: string[]; pin?: string[] }) {
+  return request<AssumptionsResponse>(token, "/assumptions", {
     method: "PUT",
-    body: JSON.stringify(assumptions),
+    body: JSON.stringify({
+      ...assumptions,
+      ...(options?.accept?.length ? { accept: options.accept } : {}),
+      ...(options?.pin?.length ? { pin: options.pin } : {}),
+    }),
   });
+}
+
+export function refreshMarketRates(token: string) {
+  return request<AssumptionsResponse>(token, "/assumptions/refresh", { method: "POST" });
 }
 
 export type AiProvider = "none" | "openai" | "anthropic";

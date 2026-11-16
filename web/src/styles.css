@@ -287,4 +287,16 @@ td:first-child { color: var(--muted); white-space: nowrap; }
 .chat-bubble.assistant { border-left: 3px solid var(--cedar); background: var(--sheet); }
 .chat-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
 .badge { display: inline-block; font-size: 12px; padding: 2px 7px; border: 1px solid var(--line); color: var(--muted); background: rgba(28, 23, 18, 0.04); }
+.badge.user { color: var(--cedar); border-color: var(--cedar-soft); background: var(--cedar-soft); }
+.badge.market { color: var(--good); border-color: rgba(33, 84, 58, 0.25); background: rgba(33, 84, 58, 0.08); }
+.badge.builtin { color: var(--muted); }
 .code-box { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: white; border: 1px solid var(--line); padding: 10px 12px; overflow-x: auto; white-space: pre-wrap; margin: 6px 0; }
+
+/* Settings: a market figure, the value in use, and where the figure came from. */
+.readout { display: grid; gap: 2px; border: 1px solid var(--line); padding: 8px 10px; background: white; }
+.readout strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.market-field { display: grid; gap: 6px; border: 1px solid var(--line); padding: 12px; background: white; }
+.market-field-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
+.market-field-head label { flex: 1; }
+.market-field-market { display: grid; gap: 6px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.market-field-market .meta { margin: 0; line-height: 1.45; }

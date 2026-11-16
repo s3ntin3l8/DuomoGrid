@@ -1,4 +1,11 @@
-import { DEFAULT_ASSUMPTIONS, STATES, type Assumptions, type StateId } from "./types.js";
+import {
+  BUILTIN_PROVENANCE,
+  DEFAULT_ASSUMPTIONS,
+  STATES,
+  type Assumptions,
+  type Provenance,
+  type StateId,
+} from "./types.js";
 
 function numberOr(value: unknown, fallback: number): number {
   const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
@@ -29,6 +36,19 @@ function numberOrNull(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Read the origin of a value. An unknown origin is `builtin`, never `user`: a row that claims the
+ * user set a number but does not say so must not be protected from a refresh.
+ */
+function provenanceOr(value: unknown): Provenance {
+  if (!value || typeof value !== "object") return BUILTIN_PROVENANCE;
+  const body = value as Record<string, unknown>;
+  const source = body.source === "user" || body.source === "market" || body.source === "builtin" ? body.source : "builtin";
+  const asOf = typeof body.asOf === "string" && body.asOf.trim() ? body.asOf.trim() : null;
+  const note = typeof body.note === "string" && body.note.trim() ? body.note.trim() : null;
+  return { source, asOf, note };
+}
+
 export function normalizeAssumptions(input: unknown): Assumptions {
   const body = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   const state = typeof body.defaultState === "string" ? body.defaultState.toUpperCase() : "";
@@ -39,12 +59,16 @@ export function normalizeAssumptions(input: unknown): Assumptions {
     equityPercent: numberOr(body.equityPercent, DEFAULT_ASSUMPTIONS.equityPercent),
     equityEur: numberOr(body.equityEur, DEFAULT_ASSUMPTIONS.equityEur),
     interestPercent: nonNegative(body.interestPercent, DEFAULT_ASSUMPTIONS.interestPercent),
+    interestProvenance: provenanceOr(body.interestProvenance),
     termYears,
     // A fixed-rate period longer than the loan is the whole loan.
     fixedYears: Math.min(positive(body.fixedYears, DEFAULT_ASSUMPTIONS.fixedYears), termYears),
     notaryPercent: numberOr(body.notaryPercent, DEFAULT_ASSUMPTIONS.notaryPercent),
+    notaryProvenance: provenanceOr(body.notaryProvenance),
     registerPercent: numberOr(body.registerPercent, DEFAULT_ASSUMPTIONS.registerPercent),
+    registerProvenance: provenanceOr(body.registerProvenance),
     fallbackCommissionPercent: numberOr(body.fallbackCommissionPercent, DEFAULT_ASSUMPTIONS.fallbackCommissionPercent),
+    commissionProvenance: provenanceOr(body.commissionProvenance),
     maintenanceEurPerM2Year: nonNegative(body.maintenanceEurPerM2Year, DEFAULT_ASSUMPTIONS.maintenanceEurPerM2Year),
     propertyTaxEurYear: nonNegative(body.propertyTaxEurYear, DEFAULT_ASSUMPTIONS.propertyTaxEurYear),
     insuranceEurPerM2Year: nonNegative(body.insuranceEurPerM2Year, DEFAULT_ASSUMPTIONS.insuranceEurPerM2Year),

@@ -88,7 +88,8 @@ startup. `build-docker` needs `contents: read` + `packages: write` +
   energy, flags, score), `compare` (cohort medians, rent-versus-buy), `reference` (states, postal
   codes, city benchmarks), `describe` (regex + LLM description extraction and missing-field merge),
   `ai` (OpenAI-compatible and Anthropic adapters), `inquiry` (due-diligence & German Makler drafts),
-  `assumptions`, `types`.
+  `market-rates` (Bundesbank interest rates), `energy-prices` (Destatis household energy prices),
+  `suggestions` (what the desk offers and what a refresh may move), `assumptions`, `types`.
 - **MCP** (`src/mcp/`): `tools` (shared deterministic tool definitions and executors), `server`
   (JSON-RPC 2.0 MCP handler), `stdio` (`npm run mcp` local stdio runner).
 - **DB** (`src/db/`): Drizzle schema/client/seed; SQL migrations in `drizzle/`.
@@ -108,6 +109,8 @@ The full list, with reasons, is in `.claude/skills/duomogrid/SKILL.md`. Read it 
 `src/`, `web/`, `extension/` or `drizzle/`. The ones most often broken:
 
 - Each route plugin that serves user data calls `installIngestGuard(app, prefix)` itself. The hook is encapsulated, and an empty token means 503.
+- `POST /assumptions/refresh` is covered by the existing `/assumptions` guard: the prefix match is `url.startsWith(prefix)`. It needs no new route plugin and no new vite proxy entry.
+- Each market-ish assumption carries a provenance (`user`, `market`, `builtin`). A refresh moves only a `market` value; a `user` or `builtin` value never moves.
 - Rentals are never scored. For `offer: "rent"`, `priceEur` is the cold rent.
 - A listing's price is its newest `observations` row. `listings` has no price column.
 - Unknown amounts stay `null` in analysis. They are never coerced to `0`.

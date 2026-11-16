@@ -107,17 +107,44 @@ export type ListingDescription = {
 };
 export type DetailPair = { label: string; value: string };
 
+/**
+ * Where a number came from.
+ *
+ * - `user` means the desk owner typed it. A market refresh never moves it.
+ * - `market` means the owner accepted a published market figure. A refresh may move it, and the
+ *   desk says when it did.
+ * - `builtin` means the shipped default. A refresh only offers a suggestion; it never moves it on
+ *   its own, so a score stays put until the owner accepts a new figure.
+ */
+export type Provenance = {
+  source: "user" | "market" | "builtin";
+  /** The period the figure belongs to, as published. Null when there is no dated source. */
+  asOf: string | null;
+  /** Who published it, for the desk to show. */
+  note: string | null;
+};
+
+export const BUILTIN_PROVENANCE: Provenance = { source: "builtin", asOf: null, note: null };
+
 export type Assumptions = {
   equityMode: "percent" | "eur";
   equityPercent: number;
   equityEur: number;
   interestPercent: number;
+  /** Where `interestPercent` came from. */
+  interestProvenance: Provenance;
   termYears: number;
   /** Years the interest rate is fixed (Zinsbindung). After that the rest of the loan is refinanced at another rate. */
   fixedYears: number;
   notaryPercent: number;
+  /** Where `notaryPercent` came from. */
+  notaryProvenance: Provenance;
   registerPercent: number;
+  /** Where `registerPercent` came from. */
+  registerProvenance: Provenance;
   fallbackCommissionPercent: number;
+  /** Where `fallbackCommissionPercent` came from. */
+  commissionProvenance: Provenance;
   /** Upkeep of a house you own, per m2 of living area and year, before the age factor. A flat's Hausgeld already covers it. */
   maintenanceEurPerM2Year: number;
   /** Grundsteuer for a house you own, per year. */
@@ -142,11 +169,15 @@ export const DEFAULT_ASSUMPTIONS: Assumptions = {
   equityPercent: 20,
   equityEur: 100000,
   interestPercent: 3.6,
+  interestProvenance: BUILTIN_PROVENANCE,
   termYears: 30,
   fixedYears: 10,
   notaryPercent: 1.5,
+  notaryProvenance: BUILTIN_PROVENANCE,
   registerPercent: 0.5,
+  registerProvenance: BUILTIN_PROVENANCE,
   fallbackCommissionPercent: 3.57,
+  commissionProvenance: BUILTIN_PROVENANCE,
   maintenanceEurPerM2Year: 10,
   propertyTaxEurYear: 450,
   insuranceEurPerM2Year: 2.5,
