@@ -86,9 +86,10 @@ function radiusFor(count: number): number {
 
 /**
  * Where a pin in a group is drawn, relative to that pin. One ring while it fits inside
- * the cap. A second ring only takes as many pins as fit at the radius that count needs,
- * so the ring is never shrunk until the scores cover each other. Pins that still do not
- * fit stay on the building.
+ * the cap. Past that, one pin stays on the building and any further pins share that
+ * point: the room inside the ring is a pin short of another ring, so the multi-pin
+ * inner branch does not run at this cap. The caller puts the highest scores on the
+ * ring, so the hidden ones are the lowest.
  */
 export function spreadOffsets(count: number): { dx: number; dy: number }[] {
   if (count < 2) return [];

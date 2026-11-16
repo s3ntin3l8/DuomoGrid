@@ -202,7 +202,11 @@ export function ListingMap({
       // A pin on its own goes back to its point. A zoom that pulls a group apart
       // must not leave the old spread in place.
       const offsets = cluster.length < 2 ? [{ dx: 0, dy: 0 }] : spreadOffsets(cluster.length);
-      cluster.forEach((entry, index) => {
+      // The first slots are the ring. A pile past nine shares the building, so the
+      // highest scores take the visible slots and the lowest are the hidden ones.
+      const scoreOf = (id: string) => rowsRef.current.find((item) => item.id === id)?.analysis.score ?? -1;
+      const ordered = [...cluster].sort((left, right) => scoreOf(right.id) - scoreOf(left.id));
+      ordered.forEach((entry, index) => {
         const { dx, dy } = offsets[index] ?? { dx: 0, dy: 0 };
         // The overlay is anchored on the true point, so it has to move with the drawn pin.
         entry.marker.setOffset([dx, dy]);
