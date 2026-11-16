@@ -44,8 +44,8 @@ function makeZip(name: string, content: string, method: 0 | 8 = 8): Uint8Array {
   return new Uint8Array(Buffer.concat([local, nameBytes, payload, central, nameBytes, eocd]));
 }
 
-const CSV = `time;1_variable_attribute_label;2_variable_attribute_label;3_variable_attribute_label;value
-2026;1. Halbjahr;Durchschnittspreise inkl. Steuern, Abgaben, Umlagen;2 500 bis unter 5 000 KWh;0,3797
+const CSV = `statistics_code;statistics_label;time_code;time_label;time;1_variable_code;1_variable_label;1_variable_attribute_code;1_variable_attribute_label;2_variable_code;2_variable_label;2_variable_attribute_code;2_variable_attribute_label;3_variable_code;3_variable_label;3_variable_attribute_code;3_variable_attribute_label;4_variable_code;4_variable_label;4_variable_attribute_code;4_variable_attribute_label;value;value_unit;value_variable_code;value_variable_label
+61243;Durchschnittspreise für Strom und Gas;JAHR;Jahr;2026;HALBJA;Halbjahre;HALBJH1;1. Halbjahr;DINSG;Deutschland insgesamt;DG;Deutschland;PREAT1;Preisarten;PRE-BRUTTO;Durchschnittspreise inkl. Steuern, Abgaben, Umlagen;VBRST1;Strom-Jahresverbrauchsklassen Haushalte;HH-STR-DC;2 500 bis unter 5 000 KWh;0,3797;EUR/kWh;PRE060;Strompreise für Haushalte
 `;
 
 describe("readZipCsv", () => {

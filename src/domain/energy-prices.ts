@@ -131,6 +131,18 @@ function variableColumn(header: string[], position: string): number {
   return header.findIndex((name) => name.includes(position));
 }
 
+/**
+ * The columns this module reads.
+ *
+ * The flat file of table 61243-0001 carries four variables before the value: the half-year, the
+ * area, the price kind and the consumption class. The price kind is the **third** variable
+ * ("Durchschnittspreise inkl. Steuern, Abgaben, Umlagen") and the consumption class the
+ * **fourth** ("2 500 bis unter 5 000 KWh"). The second variable is the area ("Deutschland
+ * insgesamt"), which says nothing about the price.
+ */
+const KIND_COLUMN = "3_variable_attribute";
+const CLASS_COLUMN = "4_variable_attribute";
+
 /** A price and the period it belongs to. */
 export type GenesisPrice = {
   value: number;
@@ -155,18 +167,19 @@ function recordPeriod(row: string[], timeIndex: number, halfIndex: number): stri
  * Find the price of one consumption class in a GENESIS table.
  *
  * The flat file carries one value per record, with the variables in labelled columns: the year in
- * `time`, the half-year in the first variable, the price kind in the second and the consumption
- * class in the third. Only the price including taxes and levies is the one a household pays, so
+ * `time`, the half-year in the first variable, the price kind in the third and the consumption
+ * class in the fourth. Only the price including taxes and levies is the one a household pays, so
  * only that one is read.
  *
  * The period comes from the record the price was taken from, not from the table's last row: the
- * newest row can be a period with no figure yet, and the two tables cover different spans.
+ * newest half-year is published with `...` for the price until Destatis fills it in, and the two
+ * tables cover different spans.
  */
 export function findGenesisPrice(rows: string[][], consumptionClass: string): GenesisPrice | null {
   const header = headerOf(rows);
-  const classIndex = variableColumn(header, "3_variable_attribute");
+  const classIndex = variableColumn(header, CLASS_COLUMN);
   const priceIndex = header.findIndex((name) => name === "value");
-  const kindIndex = variableColumn(header, "2_variable_attribute");
+  const kindIndex = variableColumn(header, KIND_COLUMN);
   const timeIndex = header.findIndex((name) => name === "time");
   const halfIndex = variableColumn(header, "1_variable_attribute");
   if (priceIndex < 0) return null;
