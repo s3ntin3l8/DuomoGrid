@@ -131,17 +131,46 @@ function variableColumn(header: string[], position: string): number {
   return header.findIndex((name) => name.includes(position));
 }
 
+/** Every column that holds a variable's label, in the order the file lists them. */
+function variableLabelColumns(header: string[]): number[] {
+  const columns: number[] = [];
+  header.forEach((name, index) => {
+    if (/^\d+_variable_attribute_label$/.test(name.trim())) columns.push(index);
+  });
+  return columns;
+}
+
 /**
- * The columns this module reads.
+ * The column that carries the consumption class.
  *
- * The flat file of table 61243-0001 carries four variables before the value: the half-year, the
- * area, the price kind and the consumption class. The price kind is the **third** variable
- * ("Durchschnittspreise inkl. Steuern, Abgaben, Umlagen") and the consumption class the
- * **fourth** ("2 500 bis unter 5 000 KWh"). The second variable is the area ("Deutschland
- * insgesamt"), which says nothing about the price.
+ * The class is found by matching the label itself, not by its position. The flat file of table
+ * 61243 carries four variables before the value, and where the class sits among them is not
+ * something to assume: a table with another variable in front of it, or with the variables in a
+ * different order, would otherwise fail silently and leave the desk blaming the account.
  */
-const KIND_COLUMN = "3_variable_attribute";
-const CLASS_COLUMN = "4_variable_attribute";
+function findClassColumn(header: string[], rows: string[][], consumptionClass: string): number {
+  for (const column of variableLabelColumns(header)) {
+    // A single match is enough: the consumption class is spelled like no other variable, and the
+    // area column never carries one.
+    if (rows.slice(1).some((row) => sameClass(row[column] ?? "", consumptionClass))) return column;
+  }
+  return -1;
+}
+
+/**
+ * The column that carries the price kind.
+ *
+ * It is the one whose values mention that the price includes taxes and levies, which is the only
+ * price a household pays. Like the class, it is found by what it says rather than by where it
+ * sits.
+ */
+function findKindColumn(header: string[], rows: string[][]): number {
+  for (const column of variableLabelColumns(header)) {
+    const hits = rows.slice(1).filter((row) => (row[column] ?? "").includes("inkl")).length;
+    if (hits > 0) return column;
+  }
+  return -1;
+}
 
 /** A price and the period it belongs to. */
 export type GenesisPrice = {
@@ -177,14 +206,14 @@ function recordPeriod(row: string[], timeIndex: number, halfIndex: number): stri
  */
 export function findGenesisPrice(rows: string[][], consumptionClass: string): GenesisPrice | null {
   const header = headerOf(rows);
-  const classIndex = variableColumn(header, CLASS_COLUMN);
   const priceIndex = header.findIndex((name) => name === "value");
-  const kindIndex = variableColumn(header, KIND_COLUMN);
   const timeIndex = header.findIndex((name) => name === "time");
   const halfIndex = variableColumn(header, "1_variable_attribute");
   if (priceIndex < 0) return null;
+  const classIndex = findClassColumn(header, rows, consumptionClass);
   // Without the class column the table is not the one this expects, so there is no price.
   if (classIndex < 0) return null;
+  const kindIndex = findKindColumn(header, rows);
   let best: GenesisPrice | null = null;
   for (const row of rows.slice(1)) {
     if (!sameClass(row[classIndex] ?? "", consumptionClass)) continue;

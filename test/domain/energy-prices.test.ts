@@ -71,8 +71,27 @@ describe("findGenesisPrice", () => {
 
   it("ignores the price without taxes", () => {
     const rows = parseGenesisCsv(CSV);
-    // The row without VAT carries a figure for the same class, and it is not read.
-    expect(findGenesisPrice(rows, ELECTRICITY_CLASS)?.value).not.toBe(0.2598);
+    // The fixture carries a row without VAT for the same class, at 0,2598. The tax-inclusive
+    // figure is the one that is read.
+    expect(findGenesisPrice(rows, ELECTRICITY_CLASS)?.value).toBe(0.3618);
+  });
+
+  it("finds the class and the price kind wherever they sit among the variables", () => {
+    // A file with an extra variable in front of the ones this table has must still be read. The
+    // columns are found by what they say, not by where they are.
+    const cells = (line: string) => line.split(";");
+    const header = cells(HEADER);
+    // Insert an extra variable right after the time columns.
+    const extra = ["EXTRA", "Extra", "EXTRA1", "Extra"];
+    const shiftedHeader = [...header.slice(0, 9), ...extra, ...header.slice(9)].join(";");
+    const shiftedRow = (line: string) => {
+      const parts = cells(line);
+      return [...parts.slice(0, 9), ...extra, ...parts.slice(9)].join(";");
+    };
+    const rows = parseGenesisCsv(
+      [shiftedHeader, ...CSV.split("\n").slice(1).map(shiftedRow)].join("\n"),
+    );
+    expect(findGenesisPrice(rows, ELECTRICITY_CLASS)?.value).toBe(0.3618);
   });
 
   it("has no price for a class the table does not carry", () => {
