@@ -131,6 +131,47 @@ function variableColumn(header: string[], position: string): number {
   return header.findIndex((name) => name.includes(position));
 }
 
+/** Every column that holds a variable's label, in the order the file lists them. */
+function variableLabelColumns(header: string[]): number[] {
+  const columns: number[] = [];
+  header.forEach((name, index) => {
+    if (/^\d+_variable_attribute_label$/.test(name.trim())) columns.push(index);
+  });
+  return columns;
+}
+
+/**
+ * The column that carries the consumption class.
+ *
+ * The class is found by matching the label itself, not by its position. The flat file of table
+ * 61243 carries four variables before the value, and where the class sits among them is not
+ * something to assume: a table with another variable in front of it, or with the variables in a
+ * different order, would otherwise fail silently and leave the desk blaming the account.
+ */
+function findClassColumn(header: string[], rows: string[][], consumptionClass: string): number {
+  for (const column of variableLabelColumns(header)) {
+    // A single match is enough: the consumption class is spelled like no other variable, and the
+    // area column never carries one.
+    if (rows.slice(1).some((row) => sameClass(row[column] ?? "", consumptionClass))) return column;
+  }
+  return -1;
+}
+
+/**
+ * The column that carries the price kind.
+ *
+ * It is the one whose values mention that the price includes taxes and levies, which is the only
+ * price a household pays. Like the class, it is found by what it says rather than by where it
+ * sits.
+ */
+function findKindColumn(header: string[], rows: string[][]): number {
+  for (const column of variableLabelColumns(header)) {
+    const hits = rows.slice(1).filter((row) => (row[column] ?? "").includes("inkl")).length;
+    if (hits > 0) return column;
+  }
+  return -1;
+}
+
 /** A price and the period it belongs to. */
 export type GenesisPrice = {
   value: number;
@@ -155,23 +196,24 @@ function recordPeriod(row: string[], timeIndex: number, halfIndex: number): stri
  * Find the price of one consumption class in a GENESIS table.
  *
  * The flat file carries one value per record, with the variables in labelled columns: the year in
- * `time`, the half-year in the first variable, the price kind in the second and the consumption
- * class in the third. Only the price including taxes and levies is the one a household pays, so
+ * `time`, the half-year in the first variable, the price kind in the third and the consumption
+ * class in the fourth. Only the price including taxes and levies is the one a household pays, so
  * only that one is read.
  *
  * The period comes from the record the price was taken from, not from the table's last row: the
- * newest row can be a period with no figure yet, and the two tables cover different spans.
+ * newest half-year is published with `...` for the price until Destatis fills it in, and the two
+ * tables cover different spans.
  */
 export function findGenesisPrice(rows: string[][], consumptionClass: string): GenesisPrice | null {
   const header = headerOf(rows);
-  const classIndex = variableColumn(header, "3_variable_attribute");
   const priceIndex = header.findIndex((name) => name === "value");
-  const kindIndex = variableColumn(header, "2_variable_attribute");
   const timeIndex = header.findIndex((name) => name === "time");
   const halfIndex = variableColumn(header, "1_variable_attribute");
   if (priceIndex < 0) return null;
+  const classIndex = findClassColumn(header, rows, consumptionClass);
   // Without the class column the table is not the one this expects, so there is no price.
   if (classIndex < 0) return null;
+  const kindIndex = findKindColumn(header, rows);
   let best: GenesisPrice | null = null;
   for (const row of rows.slice(1)) {
     if (!sameClass(row[classIndex] ?? "", consumptionClass)) continue;
