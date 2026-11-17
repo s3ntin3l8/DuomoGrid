@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/s3ntin3l8/DuomoGrid/compare/v0.1.6...v0.1.7) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ai:** discover provider models and omit unsupported temperature ([#60](https://github.com/s3ntin3l8/DuomoGrid/issues/60)) ([b009595](https://github.com/s3ntin3l8/DuomoGrid/commit/b009595f2be9e2e069ef9900e92b0101f37fe9fb))
+
 ## [0.1.6](https://github.com/s3ntin3l8/DuomoGrid/compare/v0.1.5...v0.1.6) (2026-11-16)
 
 
