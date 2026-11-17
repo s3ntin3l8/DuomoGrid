@@ -450,6 +450,15 @@ export function saveAiSettings(token: string, body: AiSettingsUpdate) {
   });
 }
 
+export type AiModel = { id: string; name: string };
+
+export function loadAiModels(token: string, body: AiSettingsUpdate) {
+  return request<{ models: AiModel[] }>(token, "/ai/models", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export function testAiConnection(token: string, body?: AiSettingsUpdate) {
   return request<{ ok: boolean; model: string; latencyMs: number; error?: string }>(token, "/ai/test", {
     method: "POST",

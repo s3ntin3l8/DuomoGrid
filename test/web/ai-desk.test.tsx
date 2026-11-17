@@ -38,6 +38,40 @@ describe("web AI settings, chat panel, and API helpers", () => {
     vi.restoreAllMocks();
   });
 
+  it("loads dropdown models, preserves the saved choice, ignores stale results and allows manual entry", async () => {
+    vi.useFakeTimers();
+    try {
+      const initial: AiSettingsPublic = { provider: "openai", baseUrl: "http://localhost:1234/v1", model: "saved-model", autoExtractOnSave: false, hasApiKey: false, apiKeyPreview: null, configured: true };
+      let finishOld: (value: { models: { id: string; name: string }[] }) => void = () => {};
+      const onLoadModels = vi.fn()
+        .mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }))
+        .mockResolvedValue({ models: [{ id: "claude-test", name: "Claude Test" }] });
+      const onSave = vi.fn().mockResolvedValue(initial);
+      await act(async () => { root.render(<AiSettingsForm initial={initial} onSave={onSave} onTest={vi.fn()} onLoadModels={onLoadModels} />); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+      const dropdown = host.querySelector('[aria-label="Model name"]') as HTMLSelectElement;
+      expect(dropdown.value).toBe("saved-model");
+      await act(async () => { Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "LM Studio (local)")?.click(); });
+      expect(dropdown.value).toBe("saved-model");
+      await act(async () => { Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Anthropic (Claude)")?.click(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+      expect(onLoadModels).toHaveBeenLastCalledWith({ provider: "anthropic", baseUrl: "https://api.anthropic.com" });
+      expect(dropdown.textContent).toContain("Claude Test");
+      await act(async () => { finishOld({ models: [{ id: "stale", name: "Stale" }] }); });
+      expect(dropdown.textContent).not.toContain("Stale");
+      await act(async () => { dropdown.value = "claude-test"; dropdown.dispatchEvent(new Event("change", { bubbles: true })); });
+      await act(async () => { host.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ model: "claude-test" }));
+      onLoadModels.mockRejectedValue(new Error("Provider offline"));
+      await act(async () => { Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Refresh models")?.click(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+      expect(host.textContent).toContain("Provider offline");
+      expect(dropdown.value).toBe("claude-test");
+      await act(async () => { dropdown.value = "__manual__"; dropdown.dispatchEvent(new Event("change", { bubbles: true })); });
+      expect(host.textContent).toContain("Custom model name");
+    } finally { vi.useRealTimers(); }
+  });
+
   it("renders AiSettingsForm, applies presets, tests connection, and saves settings", async () => {
     const initial: AiSettingsPublic = {
       provider: "openai",

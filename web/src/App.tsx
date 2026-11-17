@@ -1,8 +1,9 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   extractListingWithAi,
   loadAiSettings,
+  loadAiModels,
   loadAssumptions,
   loadListing,
   loadListingInquiry,
@@ -17,6 +18,7 @@ import {
   storedToken,
   testAiConnection,
   type AiSettingsPublic,
+  type AiSettingsUpdate,
   type Assumptions,
   type DeskListing,
   type ListingPatch,
@@ -83,6 +85,7 @@ export function App() {
   const [assumptions, setAssumptions] = useState<Assumptions | null>(null);
   const [market, setMarket] = useState<MarketSnapshot | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
+  const discoverModels = useCallback((body: AiSettingsUpdate) => loadAiModels(token, body), [token]);
   const [aiSettings, setAiSettings] = useState<AiSettingsPublic | null>(null);
   const [states, setStates] = useState<StateOption[]>([]);
   const [error, setError] = useState("");
@@ -379,6 +382,7 @@ export function App() {
           <AiSettingsForm
             key={JSON.stringify(aiSettings)}
             initial={aiSettings}
+            onLoadModels={discoverModels}
             onSave={async (next) => {
               const saved = await saveAiSettings(token, next);
               setAiSettings(saved);
