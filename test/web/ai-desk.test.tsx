@@ -51,6 +51,8 @@ describe("web AI settings, chat panel, and API helpers", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(350); });
       const dropdown = host.querySelector('[aria-label="Model name"]') as HTMLSelectElement;
       expect(dropdown.value).toBe("saved-model");
+      await act(async () => { Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "LM Studio (local)")?.click(); });
+      expect(dropdown.value).toBe("saved-model");
       await act(async () => { Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Anthropic (Claude)")?.click(); });
       await act(async () => { await vi.advanceTimersByTimeAsync(350); });
       expect(onLoadModels).toHaveBeenLastCalledWith({ provider: "anthropic", baseUrl: "https://api.anthropic.com" });

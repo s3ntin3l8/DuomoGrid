@@ -72,6 +72,23 @@ describe("domain/ai", () => {
     expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ authorization: "Bearer demo" });
   });
 
+  it.each(["secret response", "null", '{"data":{}}'])("sanitizes invalid model responses: %s", async (body) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(body));
+    await expect(listAiModels({ provider: "openai", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "", autoExtractOnSave: false })).rejects.toThrow("Provider returned an invalid model list.");
+  });
+
+  it.each([undefined, "same-cursor"])("rejects absent or repeated Anthropic cursors: %s", async (lastId) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ data: [], has_more: true, last_id: lastId })));
+    await expect(listAiModels({ provider: "anthropic", baseUrl: "https://api.anthropic.com", apiKey: "demo", model: "", autoExtractOnSave: false })).rejects.toThrow("Provider returned an invalid model pagination cursor."); // pragma: allowlist secret
+  });
+
+  it("caps Anthropic pagination at 20 pages", async () => {
+    let page = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ data: [], has_more: true, last_id: `page-${page++}` })));
+    await expect(listAiModels({ provider: "anthropic", baseUrl: "https://api.anthropic.com", apiKey: "demo", model: "", autoExtractOnSave: false })).rejects.toThrow("Provider returned too many model pages."); // pragma: allowlist secret
+    expect(fetchMock).toHaveBeenCalledTimes(20);
+  });
+
   it("masks API keys, encrypts them at rest via EncryptionService, and refuses plaintext storage", () => {
     expect(maskApiKey("")).toBeNull();
     expect(maskApiKey("short")).toBe("********");

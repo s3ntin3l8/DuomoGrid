@@ -107,8 +107,10 @@ export function AiSettingsForm({
             onClick={() => {
               setProvider(preset.provider);
               setBaseUrl(preset.baseUrl);
-              setModel("");
-              setManualModel(false);
+              if (preset.provider !== provider) {
+                setModel("");
+                setManualModel(false);
+              }
               setStatusMsg("");
               setError("");
             }}

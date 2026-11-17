@@ -77,6 +77,12 @@ export async function aiRoute(app: FastifyInstance) {
   app.post("/ai/models", async (request, reply) => {
     const merged = applyAiSettingsUpdate(currentAiSettings(), request.body ?? {});
     if (!merged.ok) return reply.code(400).send({ error: merged.error });
+    if (merged.settings.provider === "none") {
+      return reply.code(400).send({ error: "Select an AI provider first." });
+    }
+    if (merged.settings.provider === "anthropic" && !merged.settings.apiKey.trim()) {
+      return reply.code(400).send({ error: "Enter an Anthropic API key to load models." });
+    }
     try {
       return { models: await listAiModels(merged.settings) };
     } catch (err) {

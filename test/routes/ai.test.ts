@@ -27,6 +27,7 @@ describe("routes/ai", () => {
     const res401 = await app.inject({ method: "GET", url: "/ai/settings" });
     expect(res401.statusCode).toBe(401);
     expect((await app.inject({ method: "POST", url: "/ai/models", payload: {} })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/ai/models", headers: { authorization: "Bearer test-token" }, payload: { provider: "anthropic", baseUrl: "https://api.anthropic.com" } })).statusCode).toBe(400);
     await app.close();
   });
 
@@ -37,6 +38,7 @@ describe("routes/ai", () => {
     const app = await buildApp();
     try {
       const headers = { authorization: "Bearer test-token" };
+      expect((await app.inject({ method: "POST", url: "/ai/models", headers, payload: {} })).statusCode).toBe(400);
       const response = await app.inject({ method: "POST", url: "/ai/models", headers, payload: { provider: "anthropic", baseUrl: "https://api.anthropic.com", model: "" } });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ models: [{ id: "claude-test", name: "Claude Test" }] });

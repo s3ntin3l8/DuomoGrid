@@ -432,12 +432,17 @@ export async function listAiModels(settings: AiSettings): Promise<AiModel[]> {
       // Provider error bodies can contain credentials; keep discovery errors generic.
       throw new Error(`Could not load models (${response.status}). Check the provider URL and API key.`);
     }
-    const data = await response.json() as {
+    let data: {
       data?: { id?: unknown; display_name?: unknown }[];
       has_more?: boolean;
       last_id?: unknown;
-    };
-    if (!Array.isArray(data.data)) throw new Error("Provider returned an invalid model list.");
+    } | null;
+    try {
+      data = await response.json() as typeof data;
+    } catch {
+      throw new Error("Provider returned an invalid model list.");
+    }
+    if (!data || !Array.isArray(data.data)) throw new Error("Provider returned an invalid model list.");
     for (const item of data.data) {
       if (typeof item?.id !== "string" || !item.id.trim() || item.id.length > 120) continue;
       models.set(item.id, {
