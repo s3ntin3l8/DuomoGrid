@@ -403,6 +403,60 @@ function anthropicMessagesUrl(baseUrl: string): URL {
   return url;
 }
 
+export type AiModel = { id: string; name: string };
+
+export async function listAiModels(settings: AiSettings): Promise<AiModel[]> {
+  if (settings.provider === "none") throw new Error("Select an AI provider first.");
+  if (settings.provider === "anthropic" && !settings.apiKey.trim()) {
+    throw new Error("Enter an Anthropic API key to load models.");
+  }
+  // Reuse the completion target validation, including the host/port allowlist.
+  const url = settings.provider === "anthropic"
+    ? anthropicMessagesUrl(settings.baseUrl)
+    : openAiChatCompletionsUrl(settings.baseUrl);
+  url.pathname = "/v1/models";
+  const headers: Record<string, string> = {};
+  if (settings.provider === "anthropic") {
+    headers["x-api-key"] = settings.apiKey.trim();
+    headers["anthropic-version"] = "2023-06-01";
+    url.searchParams.set("limit", "1000");
+  } else if (settings.apiKey.trim()) {
+    headers.authorization = `Bearer ${settings.apiKey.trim()}`;
+  }
+  const models = new Map<string, AiModel>();
+  const cursors = new Set<string>();
+  const signal = AbortSignal.timeout(15_000);
+  for (let page = 0; page < 20; page += 1) {
+    const response = await fetch(new URL(url), { headers, redirect: "error", signal });
+    if (!response.ok) {
+      // Provider error bodies can contain credentials; keep discovery errors generic.
+      throw new Error(`Could not load models (${response.status}). Check the provider URL and API key.`);
+    }
+    const data = await response.json() as {
+      data?: { id?: unknown; display_name?: unknown }[];
+      has_more?: boolean;
+      last_id?: unknown;
+    };
+    if (!Array.isArray(data.data)) throw new Error("Provider returned an invalid model list.");
+    for (const item of data.data) {
+      if (typeof item?.id !== "string" || !item.id.trim() || item.id.length > 120) continue;
+      models.set(item.id, {
+        id: item.id,
+        name: typeof item.display_name === "string" ? item.display_name : item.id,
+      });
+    }
+    if (settings.provider !== "anthropic" || !data.has_more) {
+      return [...models.values()].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    if (typeof data.last_id !== "string" || !data.last_id || cursors.has(data.last_id)) {
+      throw new Error("Provider returned an invalid model pagination cursor.");
+    }
+    cursors.add(data.last_id);
+    url.searchParams.set("after_id", data.last_id);
+  }
+  throw new Error("Provider returned too many model pages.");
+}
+
 export async function completeJson<T>(
   settings: AiSettings,
   systemPrompt: string,
@@ -426,7 +480,6 @@ export async function completeJson<T>(
       signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model: settings.model,
-        temperature: 0,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
@@ -457,7 +510,6 @@ export async function completeJson<T>(
     body: JSON.stringify({
       model: settings.model,
       max_tokens: 2048,
-      temperature: 0,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     }),
@@ -569,7 +621,6 @@ export async function runAgentChat(
     for (let step = 0; step < maxSteps; step += 1) {
       const payload: Record<string, unknown> = {
         model: settings.model,
-        temperature: 0.2,
         messages: conversation,
       };
       if (useTools) {
@@ -681,7 +732,6 @@ export async function runAgentChat(
       body: JSON.stringify({
         model: settings.model,
         max_tokens: 2048,
-        temperature: 0.2,
         system: opts.system,
         tools: anthropicTools,
         messages: anthropicMessages,

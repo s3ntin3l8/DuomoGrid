@@ -1,30 +1,26 @@
-import { useState } from "react";
-import type { AiProvider, AiSettingsPublic, AiSettingsUpdate } from "./api";
+import { useEffect, useState } from "react";
+import type { AiModel, AiProvider, AiSettingsPublic, AiSettingsUpdate } from "./api";
 
-const PRESETS: { label: string; provider: AiProvider; baseUrl: string; modelHint: string }[] = [
+const PRESETS: { label: string; provider: AiProvider; baseUrl: string }[] = [
   {
     label: "Ollama (local)",
     provider: "openai",
     baseUrl: "http://127.0.0.1:11434/v1",
-    modelHint: "qwen2.5:14b",
   },
   {
     label: "LM Studio (local)",
     provider: "openai",
     baseUrl: "http://127.0.0.1:1234/v1",
-    modelHint: "local-model",
   },
   {
     label: "OpenAI API",
     provider: "openai",
     baseUrl: "https://api.openai.com/v1",
-    modelHint: "gpt-4o-mini",
   },
   {
     label: "Anthropic (Claude)",
     provider: "anthropic",
     baseUrl: "https://api.anthropic.com",
-    modelHint: "claude-sonnet-4-20250514",
   },
 ];
 
@@ -41,8 +37,10 @@ export function AiSettingsForm({
   initial,
   onSave,
   onTest,
+  onLoadModels,
 }: {
   initial: AiSettingsPublic;
+  onLoadModels?: (body: AiSettingsUpdate) => Promise<{ models: AiModel[] }>;
   onSave: (body: AiSettingsUpdate) => Promise<AiSettingsPublic>;
   onTest: (body: AiSettingsUpdate) => Promise<{ ok: boolean; model: string; latencyMs: number; error?: string }>;
 }) {
@@ -56,6 +54,31 @@ export function AiSettingsForm({
   const [testing, setTesting] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
   const [error, setError] = useState("");
+
+  const [models, setModels] = useState<AiModel[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelError, setModelError] = useState("");
+  const [reloadModels, setReloadModels] = useState(0);
+  const [manualModel, setManualModel] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setModels([]);
+    setModelError("");
+    setLoadingModels(provider !== "none" && Boolean(onLoadModels));
+    if (provider === "none" || !onLoadModels) return;
+    const timer = window.setTimeout(() => {
+      void onLoadModels({ provider, baseUrl, ...(clearApiKey ? { clearApiKey: true } : apiKey.trim() ? { apiKey: apiKey.trim() } : {}) })
+        .then((result) => {
+          if (active) setModels(result.models);
+        })
+        .catch((reason: unknown) => {
+          if (active) setModelError(reason instanceof Error ? reason.message : "Could not load models.");
+        })
+        .finally(() => { if (active) setLoadingModels(false); });
+    }, 350);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [provider, baseUrl, apiKey, clearApiKey, reloadModels, onLoadModels]);
 
   function currentPayload(): AiSettingsUpdate {
     return {
@@ -84,7 +107,8 @@ export function AiSettingsForm({
             onClick={() => {
               setProvider(preset.provider);
               setBaseUrl(preset.baseUrl);
-              if (!model) setModel(preset.modelHint);
+              setModel("");
+              setManualModel(false);
               setStatusMsg("");
               setError("");
             }}
@@ -120,6 +144,8 @@ export function AiSettingsForm({
               onChange={(event) => {
                 const next = event.target.value as AiProvider;
                 setProvider(next);
+                setModel("");
+                setManualModel(false);
                 const current = parseUrlParts(baseUrl);
                 if (next === "anthropic" && current.port === "11434") {
                   setBaseUrl("https://api.anthropic.com");
@@ -150,12 +176,26 @@ export function AiSettingsForm({
                 </label>
                 <label>
                   Model name
-                  <input
-                    value={model}
-                    onChange={(event) => setModel(event.target.value)}
-                    placeholder={provider === "anthropic" ? "claude-sonnet-4-20250514" : "qwen2.5:14b or gpt-4o-mini"}
-                  />
+                  <select
+                    aria-label="Model name"
+                    value={manualModel ? "__manual__" : model}
+                    onChange={(event) => {
+                      if (event.target.value === "__manual__") setManualModel(true);
+                      else { setManualModel(false); setModel(event.target.value); }
+                    }}
+                    aria-busy={loadingModels}
+                  >
+                    <option value="">{loadingModels ? "Loading models…" : "Select a model"}</option>
+                    {model && !models.some((item) => item.id === model) ? <option value={model}>{model} (current)</option> : null}
+                    {models.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                    <option value="__manual__">Enter model manually…</option>
+                  </select>
                 </label>
+              </div>
+              {manualModel ? <label>Custom model name<input value={model} onChange={(event) => setModel(event.target.value)} /></label> : null}
+              <div className="row-actions">
+                <button type="button" className="text-button" disabled={loadingModels} onClick={() => setReloadModels((value) => value + 1)}>Refresh models</button>
+                <span className="meta" role="status">{loadingModels ? "Loading models…" : modelError || (models.length ? `${models.length} models available.` : "No models loaded. You can enter a model manually.")}</span>
               </div>
 
               <label>

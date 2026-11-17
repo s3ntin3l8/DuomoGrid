@@ -19,13 +19,35 @@ describe("routes/ai", () => {
     const appNoToken = await buildApp();
     const res503 = await appNoToken.inject({ method: "GET", url: "/ai/settings" });
     expect(res503.statusCode).toBe(503);
+    expect((await appNoToken.inject({ method: "POST", url: "/ai/models", payload: {} })).statusCode).toBe(503);
     await appNoToken.close();
 
     process.env.INGEST_TOKEN = "test-token";
     const app = await buildApp();
     const res401 = await app.inject({ method: "GET", url: "/ai/settings" });
     expect(res401.statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/ai/models", payload: {} })).statusCode).toBe(401);
     await app.close();
+  });
+
+  it("discovers models with draft settings and an env key without persisting the draft", async () => {
+    process.env.INGEST_TOKEN = "test-token";
+    process.env.AI_API_KEY = "demo"; // pragma: allowlist secret
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "claude-test", display_name: "Claude Test" }] })));
+    const app = await buildApp();
+    try {
+      const headers = { authorization: "Bearer test-token" };
+      const response = await app.inject({ method: "POST", url: "/ai/models", headers, payload: { provider: "anthropic", baseUrl: "https://api.anthropic.com", model: "" } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ models: [{ id: "claude-test", name: "Claude Test" }] });
+      expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({ "x-api-key": "demo" });
+      expect(app.db.select().from(settings).where(eq(settings.key, "ai")).get()).toBeUndefined();
+      const invalid = await app.inject({ method: "POST", url: "/ai/models", headers, payload: { baseUrl: "http://169.254.169.254" } });
+      expect(invalid.statusCode).toBe(400);
+      fetchMock.mockResolvedValue(new Response("failure", { status: 500 }));
+      const failed = await app.inject({ method: "POST", url: "/ai/models", headers, payload: { provider: "openai" } });
+      expect(failed.statusCode).toBe(502);
+    } finally { await app.close(); }
   });
 
   it("refuses storing an API key without DB_ENCRYPTION_KEY, and encrypts it at rest when enabled", async () => {

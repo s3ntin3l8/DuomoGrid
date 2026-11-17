@@ -5,6 +5,7 @@ import { listings, settings } from "../db/schema.js";
 import {
   applyAiSettingsUpdate,
   isAiConfigured,
+  listAiModels,
   runAgentChat,
   serializeAiSettings,
   testAiProvider,
@@ -71,6 +72,18 @@ export async function aiRoute(app: FastifyInstance) {
       app.db.insert(settings).values({ key: "ai", value }).run();
     }
     return toPublicAiSettings(currentAiSettings(), app.encryption);
+  });
+
+  app.post("/ai/models", async (request, reply) => {
+    const merged = applyAiSettingsUpdate(currentAiSettings(), request.body ?? {});
+    if (!merged.ok) return reply.code(400).send({ error: merged.error });
+    try {
+      return { models: await listAiModels(merged.settings) };
+    } catch (err) {
+      return reply.code(502).send({
+        error: err instanceof Error ? err.message : "Could not load models.",
+      });
+    }
   });
 
   app.post("/ai/test", async (request, reply) => {

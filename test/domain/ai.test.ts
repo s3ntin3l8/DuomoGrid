@@ -4,6 +4,7 @@ import {
   applyAiSettingsUpdate,
   completeJson,
   maskApiKey,
+  listAiModels,
   normalizeAiSettings,
   runAgentChat,
   serializeAiSettings,
@@ -41,6 +42,34 @@ describe("domain/ai", () => {
       ok: false,
       error: "Base URL must use http:// or https://.",
     });
+  });
+
+  it("discovers authenticated Anthropic models across pages without requiring a model", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "claude-b", display_name: "Claude B" }], has_more: true, last_id: "claude-b" })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "claude-a", display_name: "Claude A" }], has_more: false })));
+    const result = await listAiModels({ provider: "anthropic", baseUrl: "https://api.anthropic.com", apiKey: "demo", model: "", autoExtractOnSave: false }); // pragma: allowlist secret
+    expect(result).toEqual([{ id: "claude-a", name: "Claude A" }, { id: "claude-b", name: "Claude B" }]);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("https://api.anthropic.com/v1/models?limit=1000");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("after_id=claude-b");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "error", headers: { "x-api-key": "demo", "anthropic-version": "2023-06-01" } });
+  });
+
+  it.each(["http://127.0.0.1:11434/v1", "http://localhost:1234/v1", "https://api.openai.com/v1"])("discovers OpenAI-compatible models at %s", async (baseUrl) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "model-a" }, { id: "model-a" }, {}, null] })));
+    expect(await listAiModels({ provider: "openai", baseUrl, apiKey: "", model: "", autoExtractOnSave: false })).toEqual([{ id: "model-a", name: "model-a" }]);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${baseUrl}/models`);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "error", headers: {} });
+  });
+
+  it("rejects unsafe discovery targets and reports provider failures without echoing secrets", async () => {
+    const candidate = { provider: "openai" as const, baseUrl: "http://169.254.169.254", apiKey: "", model: "", autoExtractOnSave: false };
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    await expect(listAiModels(candidate)).rejects.toThrow(/not allowed/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValue(new Response("secret body", { status: 401 }));
+    await expect(listAiModels({ ...candidate, baseUrl: "https://api.openai.com/v1", apiKey: "demo" })).rejects.toThrow("Could not load models (401)"); // pragma: allowlist secret
+    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ authorization: "Bearer demo" });
   });
 
   it("masks API keys, encrypts them at rest via EncryptionService, and refuses plaintext storage", () => {
@@ -106,6 +135,7 @@ describe("domain/ai", () => {
       "User prompt",
     );
     expect(openAiRes).toEqual({ ok: true, provider: "ollama" });
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).not.toHaveProperty("temperature");
 
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
@@ -124,6 +154,7 @@ describe("domain/ai", () => {
       autoExtractOnSave: false,
     });
     expect(ping).toMatchObject({ ok: true, model: "claude-3-5-haiku-latest" });
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body))).not.toHaveProperty("temperature");
   });
 
   it("executes tool-calling loops for both OpenAI and Anthropic providers", async () => {
